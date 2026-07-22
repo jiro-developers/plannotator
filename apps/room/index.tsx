@@ -1,5 +1,6 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
+import { ThemeProvider } from '@plannotator/ui/components/ThemeProvider';
 import { RoomApp } from './ui/RoomApp';
 import { LandingApp } from './ui/LandingApp';
 import './index.css';
@@ -13,6 +14,8 @@ const roomMatch = window.location.pathname.match(/^\/r\/([A-Za-z0-9]{6,16})\/?$/
 
 ReactDOM.createRoot(rootElement).render(
   <React.StrictMode>
-    {roomMatch ? <RoomApp roomId={roomMatch[1]} /> : <LandingApp />}
+    <ThemeProvider>
+      {roomMatch ? <RoomApp roomId={roomMatch[1]} /> : <LandingApp />}
+    </ThemeProvider>
   </React.StrictMode>
 );

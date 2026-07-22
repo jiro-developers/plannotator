@@ -3,10 +3,13 @@ import { toast, Toaster } from 'sonner';
 import { Viewer, type ViewerHandle } from '@plannotator/ui/components/Viewer';
 import { AnnotationPanel } from '@plannotator/ui/components/AnnotationPanel';
 import { OverlayScrollArea } from '@plannotator/ui/components/OverlayScrollArea';
+import { TableOfContents } from '@plannotator/ui/components/TableOfContents';
+import { useTheme } from '@plannotator/ui/components/ThemeProvider';
 import { ScrollViewportProvider } from '@plannotator/ui/hooks/useScrollViewport';
 import { extractFrontmatter, parseMarkdownToBlocks } from '@plannotator/ui/utils/parser';
 import { getIdentity, isCurrentUser } from '@plannotator/ui/utils/identity';
-import type { Annotation } from '@plannotator/ui/types';
+import { getEditorMode, saveEditorMode } from '@plannotator/ui/utils/editorMode';
+import type { Annotation, EditorMode } from '@plannotator/ui/types';
 import type { RoomSnapshot } from '../core/types';
 import {
   deleteAnnotation,
@@ -26,12 +29,21 @@ const POLL_INTERVAL_MS = 10_000;
 /** Delay before re-anchoring highlights so the viewer DOM is fully rendered. */
 const REPAINT_DELAY_MS = 150;
 
+const MODE_OPTION_LIST: Array<{ id: EditorMode; label: string }> = [
+  { id: 'selection', label: 'Select' },
+  { id: 'comment', label: 'Comment' },
+  { id: 'redline', label: 'Redline' },
+];
+
 export function RoomApp({ roomId }: { roomId: string }) {
   const [snapshot, setSnapshot] = useState<RoomSnapshot | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [selectedAnnotationId, setSelectedAnnotationId] = useState<string | null>(null);
   const [viewport, setViewport] = useState<HTMLElement | null>(null);
   const [lastSyncA, setLastSyncA] = useState<number | null>(null);
+  const [editorMode, setEditorMode] = useState<EditorMode>(getEditorMode);
+  const [activeTocId, setActiveTocId] = useState<string | null>(null);
+  const { resolvedMode, setMode } = useTheme();
 
   const viewerRef = useRef<ViewerHandle>(null);
   const snapshotRef = useRef<RoomSnapshot | null>(null);
@@ -282,7 +294,34 @@ export function RoomApp({ roomId }: { roomId: string }) {
           >
             링크 복사
           </button>
+          <div className="ml-2 hidden items-center rounded-lg border border-border/60 p-0.5 md:flex">
+            {MODE_OPTION_LIST.map((option) => (
+              <button
+                key={option.id}
+                type="button"
+                onClick={() => {
+                  setEditorMode(option.id);
+                  saveEditorMode(option.id);
+                }}
+                className={`rounded-md px-2.5 py-1 text-xs transition-colors ${
+                  editorMode === option.id
+                    ? 'bg-primary text-primary-foreground'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
           <div className="ml-auto flex items-center gap-2 text-[11px] text-muted-foreground">
+            <button
+              type="button"
+              onClick={() => setMode(resolvedMode === 'dark' ? 'light' : 'dark')}
+              className="rounded border border-border/60 px-2 py-1 hover:bg-muted"
+              title="라이트/다크 전환"
+            >
+              {resolvedMode === 'dark' ? '☀️' : '🌙'}
+            </button>
             {lastSyncA && (
               <span className="hidden items-center gap-1 sm:flex">
                 <span className="inline-block h-1.5 w-1.5 rounded-full bg-green-500" aria-hidden />
@@ -296,12 +335,21 @@ export function RoomApp({ roomId }: { roomId: string }) {
         </header>
 
         <div className="flex min-h-0 flex-1">
+          <aside className="hidden w-60 shrink-0 overflow-y-auto border-r border-border/50 px-2 py-4 lg:block">
+            <TableOfContents
+              blocks={blocks}
+              annotations={uiAnnotations}
+              activeId={activeTocId}
+              onNavigate={setActiveTocId}
+            />
+          </aside>
+
           <OverlayScrollArea
             element="main"
-            className="min-w-0 flex-1"
+            className="bg-grid min-w-0 flex-1"
             onViewportReady={setViewport}
           >
-            <div className="mx-auto max-w-4xl px-6 py-6">
+            <div className="mx-auto max-w-4xl px-6 py-8">
               <Viewer
                 key={planVersion}
                 ref={viewerRef}
@@ -312,9 +360,10 @@ export function RoomApp({ roomId }: { roomId: string }) {
                 onAddAnnotation={handleAddAnnotation}
                 onSelectAnnotation={setSelectedAnnotationId}
                 selectedAnnotationId={selectedAnnotationId}
-                mode="selection"
+                mode={editorMode}
                 taterMode={false}
                 stickyActions
+                gridEnabled
                 allowImages={false}
                 disableCodePathValidation
               />
