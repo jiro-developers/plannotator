@@ -11,3 +11,11 @@
 @source "./ui/**/*.tsx";
 
 @import "../../packages/ui/theme.css";
+
+/* 코멘트 카드 헤더의 "작성자 · 시각" 표기가 10px/50% 투명도라 잘 안 보임 —
+   upstream(AnnotationPanel) 마크업을 건드리지 않고 여기서 대비만 올린다. */
+span.text-\[10px\].text-muted-foreground\/50 {
+  color: color-mix(in oklab, var(--foreground) 85%, transparent);
+  font-size: 11px;
+  font-weight: 600;
+}

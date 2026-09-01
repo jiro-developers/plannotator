@@ -26,6 +26,14 @@ import {
 import { RoomCardFooter } from './RoomCardFooter';
 import { EmojiAutocomplete } from './EmojiAutocomplete';
 import { HistoryModal } from './HistoryModal';
+import { ResizeHandle } from './ResizeHandle';
+
+const clampWidth = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
+
+function loadWidth(key: string, fallback: number, min: number, max: number): number {
+  const saved = Number(localStorage.getItem(key));
+  return Number.isFinite(saved) && saved > 0 ? clampWidth(saved, min, max) : fallback;
+}
 
 const POLL_INTERVAL_MS = 10_000;
 /** Delay before re-anchoring highlights so the viewer DOM is fully rendered. */
@@ -55,6 +63,13 @@ export function RoomApp({ roomId }: { roomId: string }) {
 
   const [identity, setIdentity] = useState(() => getIdentity());
   const [showHistory, setShowHistory] = useState(false);
+  // 양쪽 사이드바 폭 — 드래그로 조절, 브라우저별로 기억
+  const [tocWidth, setTocWidth] = useState(() => loadWidth('room.tocWidth', 240, 160, 480));
+  const [panelWidth, setPanelWidth] = useState(() => loadWidth('room.panelWidth', 340, 260, 640));
+  const tocWidthRef = useRef(tocWidth);
+  tocWidthRef.current = tocWidth;
+  const panelWidthRef = useRef(panelWidth);
+  panelWidthRef.current = panelWidth;
   /** Annotations that no longer anchor to the current plan text (document drift). */
   const [lostAnchorIds, setLostAnchorIds] = useState<ReadonlySet<string>>(new Set());
 
@@ -417,7 +432,10 @@ export function RoomApp({ roomId }: { roomId: string }) {
         </header>
 
         <div className="flex min-h-0 flex-1">
-          <aside className="hidden w-60 shrink-0 overflow-y-auto border-r border-border/50 px-2 py-4 lg:block">
+          <aside
+            style={{ width: tocWidth }}
+            className="hidden shrink-0 overflow-y-auto border-r border-border/50 px-2 py-4 lg:block"
+          >
             <TableOfContents
               blocks={blocks}
               annotations={uiAnnotations}
@@ -425,6 +443,11 @@ export function RoomApp({ roomId }: { roomId: string }) {
               onNavigate={setActiveTocId}
             />
           </aside>
+          <ResizeHandle
+            className="hidden lg:block"
+            onDelta={(dx) => setTocWidth((w) => clampWidth(w + dx, 160, 480))}
+            onEnd={() => localStorage.setItem('room.tocWidth', String(tocWidthRef.current))}
+          />
 
           <OverlayScrollArea
             element="main"
@@ -454,6 +477,10 @@ export function RoomApp({ roomId }: { roomId: string }) {
             </div>
           </OverlayScrollArea>
 
+          <ResizeHandle
+            onDelta={(dx) => setPanelWidth((w) => clampWidth(w - dx, 260, 640))}
+            onEnd={() => localStorage.setItem('room.panelWidth', String(panelWidthRef.current))}
+          />
           <AnnotationPanel
             isOpen
             blocks={blocks}
@@ -463,7 +490,7 @@ export function RoomApp({ roomId }: { roomId: string }) {
             onDelete={handleDeleteAnnotation}
             onEdit={handleEditAnnotation}
             sharingEnabled={false}
-            width={340}
+            width={panelWidth}
             renderCardFooter={(annotation) => {
               const roomAnnotation = roomAnnotationById.get(annotation.id);
               if (!roomAnnotation) return null;
