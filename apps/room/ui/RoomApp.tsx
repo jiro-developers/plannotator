@@ -7,7 +7,7 @@ import { TableOfContents } from '@plannotator/ui/components/TableOfContents';
 import { useTheme } from '@plannotator/ui/components/ThemeProvider';
 import { ScrollViewportProvider } from '@plannotator/ui/hooks/useScrollViewport';
 import { extractFrontmatter, parseMarkdownToBlocks } from '@plannotator/ui/utils/parser';
-import { getIdentity, isCurrentUser, setCustomIdentity } from '@plannotator/ui/utils/identity';
+import { getIdentity, isCurrentUser, isIdentityEditable, setCustomIdentity } from '@plannotator/ui/utils/identity';
 import { getEditorMode, saveEditorMode } from '@plannotator/ui/utils/editorMode';
 import type { Annotation, EditorMode } from '@plannotator/ui/types';
 import type { RoomSnapshot } from '../core/types';
@@ -363,14 +363,20 @@ export function RoomApp({ roomId }: { roomId: string }) {
                 동기화 {new Date(lastSyncA).toLocaleTimeString()}
               </span>
             )}
-            <button
-              type="button"
-              onClick={renameIdentity}
-              className="rounded-full bg-primary/10 px-2 py-0.5 font-medium text-primary hover:bg-primary/20"
-              title="클릭해서 닉네임 변경"
-            >
-              {identity} ✎
-            </button>
+            {isIdentityEditable() ? (
+              <button
+                type="button"
+                onClick={renameIdentity}
+                className="rounded-full bg-primary/10 px-2 py-0.5 font-medium text-primary hover:bg-primary/20"
+                title="클릭해서 닉네임 변경"
+              >
+                {identity} ✎
+              </button>
+            ) : (
+              <span className="rounded-full bg-primary/10 px-2 py-0.5 font-medium text-primary">
+                {identity}
+              </span>
+            )}
           </div>
         </header>
 

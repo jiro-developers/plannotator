@@ -15,6 +15,21 @@ const allowedOrigins = getAllowedOrigins(process.env.ROOM_ALLOWED_ORIGINS);
 const publicBaseUrl = process.env.ROOM_PUBLIC_URL?.replace(/\/$/, '');
 const databaseUrl = process.env.DATABASE_URL;
 
+// Google 로그인은 세 변수가 모두 있어야 켜진다 — 없으면 기존 무인증 모드.
+const googleClientId = process.env.GOOGLE_CLIENT_ID;
+const googleClientSecret = process.env.GOOGLE_CLIENT_SECRET;
+const sessionSecret = process.env.ROOM_SESSION_SECRET;
+const auth =
+  googleClientId && googleClientSecret && sessionSecret
+    ? {
+        googleClientId,
+        googleClientSecret,
+        sessionSecret,
+        allowedDomain: process.env.ROOM_ALLOWED_EMAIL_DOMAIN || 'jirocorp.io',
+        agentToken: process.env.ROOM_AGENT_TOKEN || undefined,
+      }
+    : undefined;
+
 const store: RoomStore = databaseUrl
   ? new PostgresRoomStore(databaseUrl, ttlMs)
   : new FsRoomStore(
@@ -54,10 +69,15 @@ Bun.serve({
     }
     const origin = request.headers.get('Origin') ?? '';
     const cors = corsHeaders(origin, allowedOrigins);
-    return handleRoomRequest(request, store, cors, { maxPlanSize, publicBaseUrl }, serveApp);
+    return handleRoomRequest(request, store, cors, { maxPlanSize, publicBaseUrl, auth }, serveApp);
   },
 });
 
 console.log(`Plannotator room service running on http://localhost:${port}`);
 console.log(`Storage: ${databaseUrl ? 'postgres (DATABASE_URL)' : 'filesystem'}`);
 console.log(`Room TTL: ${ttlDays} days`);
+console.log(
+  auth
+    ? `Auth: google (@${auth.allowedDomain}${auth.agentToken ? ', agent token set' : ', NO agent token'})`
+    : 'Auth: disabled (no GOOGLE_CLIENT_ID/GOOGLE_CLIENT_SECRET/ROOM_SESSION_SECRET)'
+);

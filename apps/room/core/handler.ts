@@ -28,12 +28,27 @@ import type {
   RoomDoc,
 } from './types';
 import { toSnapshot } from './types';
+import {
+  type RoomAuthConfig,
+  type SessionUser,
+  verifySession,
+  isAgentRequest,
+  createSessionCookie,
+  CLEAR_SESSION_COOKIE,
+  buildStateCookie,
+  readStateCookie,
+  CLEAR_STATE_COOKIE,
+  googleAuthUrl,
+  exchangeGoogleCode,
+} from './auth';
 
 export interface RoomServiceOptions {
   /** Max plan markdown size in bytes. */
   maxPlanSize: number;
   /** Base URL used to build shareable room links (e.g. https://room.example.com). */
   publicBaseUrl?: string;
+  /** When set, Google login (domain-restricted) gates every /api/rooms route. */
+  auth?: RoomAuthConfig;
 }
 
 export const DEFAULT_MAX_PLAN_SIZE = 2 * 1024 * 1024;
@@ -241,11 +256,74 @@ export async function handleRoomRequest(
       return json({}, 200);
     }
 
+    const auth = options.auth;
+    const baseOrigin = options.publicBaseUrl ?? url.origin;
+
+    if (auth) {
+      if (url.pathname === '/auth/login' && request.method === 'GET') {
+        const redirect = url.searchParams.get('redirect') ?? '/';
+        const safeRedirect = redirect.startsWith('/') && !redirect.startsWith('//') ? redirect : '/';
+        const state = crypto.randomUUID();
+        const headers = new Headers(cors);
+        headers.set('Location', googleAuthUrl(auth, `${baseOrigin}/auth/callback`, state));
+        headers.append('Set-Cookie', buildStateCookie(state, safeRedirect));
+        return new Response(null, { status: 302, headers });
+      }
+      if (url.pathname === '/auth/callback' && request.method === 'GET') {
+        const code = url.searchParams.get('code');
+        const state = url.searchParams.get('state');
+        const saved = readStateCookie(request);
+        if (!code || !state || !saved || saved.s !== state) {
+          return new Response('로그인 상태가 만료됐어요. 다시 시도해 주세요.', {
+            status: 400,
+            headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+          });
+        }
+        const result = await exchangeGoogleCode(auth, `${baseOrigin}/auth/callback`, code);
+        if ('error' in result) {
+          return new Response(`로그인 실패: ${result.error}`, {
+            status: 403,
+            headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+          });
+        }
+        const headers = new Headers();
+        headers.set('Location', saved.r);
+        headers.append('Set-Cookie', await createSessionCookie(result, auth.sessionSecret));
+        headers.append('Set-Cookie', CLEAR_STATE_COOKIE);
+        return new Response(null, { status: 302, headers });
+      }
+      if (url.pathname === '/auth/logout' && request.method === 'POST') {
+        const headers = new Headers(cors);
+        headers.append('Set-Cookie', CLEAR_SESSION_COOKIE);
+        return new Response(null, { status: 204, headers });
+      }
+    }
+
+    // Who is calling: a logged-in browser session or the shared agent token.
+    // Their name is stamped as `author` on every mutation (no impersonation).
+    let actor: SessionUser | null = null;
+    if (auth) {
+      actor = isAgentRequest(request, auth)
+        ? { email: 'agent', name: 'agent' }
+        : await verifySession(request, auth.sessionSecret);
+    }
+    const actorName = actor?.name ?? null;
+
+    if (url.pathname === '/api/me') {
+      if (!auth) return json({ auth: false });
+      if (!actor) return json({ error: 'Unauthorized' }, 401);
+      return json({ auth: true, user: { email: actor.email, name: actor.name } });
+    }
+
+    if (auth && url.pathname.startsWith('/api/rooms') && !actor) {
+      return json({ error: 'Unauthorized' }, 401);
+    }
+
     if (url.pathname === '/api/rooms' && request.method === 'POST') {
       const body = await readJson(request);
       const plan = requireString(body.plan, 'plan', options.maxPlanSize);
       const title = optionalString(body.title, 'title', MAX_TITLE_LENGTH) ?? deriveTitle(plan);
-      const author = optionalString(body.author, 'author', MAX_AUTHOR_LENGTH) ?? 'owner';
+      const author = actorName ?? optionalString(body.author, 'author', MAX_AUTHOR_LENGTH) ?? 'owner';
       const now = Date.now();
       const id = generateRoomId();
       const doc: RoomDoc = {
@@ -300,7 +378,7 @@ export async function handleRoomRequest(
         const body = await readJson(request);
         const plan = requireString(body.plan, 'plan', options.maxPlanSize);
         const note = optionalString(body.note, 'note', 2000) ?? 'Plan updated';
-        const author = optionalString(body.author, 'author', MAX_AUTHOR_LENGTH) ?? 'agent';
+        const author = actorName ?? optionalString(body.author, 'author', MAX_AUTHOR_LENGTH) ?? 'agent';
         return await withRoomLock(roomId, async () => {
           const doc = await loadRoom(store, roomId);
           // Keep the superseded body so the UI can diff versions (bounded).
@@ -324,6 +402,7 @@ export async function handleRoomRequest(
 
       if (request.method === 'POST' && subPath === '/annotations') {
         const input = parseAnnotationInput(await readJson(request));
+        if (actorName) input.author = actorName;
         return await withRoomLock(roomId, async () => {
           const doc = await loadRoom(store, roomId);
           if (doc.annotations.some((a) => a.id === input.id)) {
@@ -351,7 +430,7 @@ export async function handleRoomRequest(
 
         if (request.method === 'POST' && action === 'replies') {
           const body = await readJson(request);
-          const author = requireString(body.author, 'author', MAX_AUTHOR_LENGTH);
+          const author = actorName ?? requireString(body.author, 'author', MAX_AUTHOR_LENGTH);
           const text = requireString(body.text, 'text', MAX_TEXT_LENGTH);
           return await withRoomLock(roomId, async () => {
             const doc = await loadRoom(store, roomId);
@@ -365,7 +444,7 @@ export async function handleRoomRequest(
 
         if (request.method === 'POST' && action === 'vote') {
           const body = await readJson(request);
-          const author = requireString(body.author, 'author', MAX_AUTHOR_LENGTH);
+          const author = actorName ?? requireString(body.author, 'author', MAX_AUTHOR_LENGTH);
           return await withRoomLock(roomId, async () => {
             const doc = await loadRoom(store, roomId);
             const annotation = findAnnotation(doc, annotationId);
@@ -383,7 +462,7 @@ export async function handleRoomRequest(
 
         if (request.method === 'PATCH' && action === undefined) {
           const body = await readJson(request);
-          const author = requireString(body.author, 'author', MAX_AUTHOR_LENGTH);
+          const author = actorName ?? requireString(body.author, 'author', MAX_AUTHOR_LENGTH);
           const status = optionalString(body.status, 'status', 32);
           const text = optionalString(body.text, 'text', MAX_TEXT_LENGTH);
           if (status !== undefined && !ANNOTATION_STATUS_LIST.includes(status as RoomAnnotationStatus)) {
@@ -411,7 +490,7 @@ export async function handleRoomRequest(
 
         if (request.method === 'DELETE' && action === undefined) {
           const body = await readJson(request);
-          const author = requireString(body.author, 'author', MAX_AUTHOR_LENGTH);
+          const author = actorName ?? requireString(body.author, 'author', MAX_AUTHOR_LENGTH);
           return await withRoomLock(roomId, async () => {
             const doc = await loadRoom(store, roomId);
             const annotation = findAnnotation(doc, annotationId);

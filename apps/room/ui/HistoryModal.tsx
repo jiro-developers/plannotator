@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { computePlanDiff, type PlanDiffBlock, type PlanDiffStats } from '@plannotator/ui/utils/planDiffEngine';
 import { PlanCleanDiffView } from '@plannotator/ui/components/plan-diff/PlanCleanDiffView';
 import type { RoomChangelogEntry } from '../core/types';
 import { fetchPlanVersion } from './api';
+import { DiffMinimap } from './DiffMinimap';
 
 interface HistoryModalProps {
   roomId: string;
@@ -45,6 +46,7 @@ export function HistoryModal({ roomId, changelog, onClose }: HistoryModalProps) 
 
   const [selected, setSelected] = useState<number | null>(versions[0]?.planVersion ?? null);
   const [state, setState] = useState<DiffState>({ phase: 'loading' });
+  const diffScrollRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (selected == null) return;
@@ -145,8 +147,12 @@ export function HistoryModal({ roomId, changelog, onClose }: HistoryModalProps) 
             ))}
           </div>
 
-          {/* 우측: 선택 버전 diff */}
-          <div className="min-w-0 flex-1 overflow-y-auto">
+          {/* 우측: 선택 버전 diff (+ 변경 위치 미니맵) */}
+          <div className="relative min-w-0 flex-1">
+            {state.phase === 'ready' && (
+              <DiffMinimap containerRef={diffScrollRef} refreshKey={state} />
+            )}
+            <div ref={diffScrollRef} className="absolute inset-0 overflow-y-auto pr-3">
             {selectedRow && (
               <div className="border-b border-border/40 px-5 py-3">
                 <div className="flex items-center gap-3">
@@ -192,6 +198,7 @@ export function HistoryModal({ roomId, changelog, onClose }: HistoryModalProps) 
                 </div>
               )}
               {state.phase === 'ready' && <PlanCleanDiffView blocks={state.blocks} />}
+            </div>
             </div>
           </div>
         </div>
