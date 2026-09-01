@@ -65,6 +65,18 @@ export interface RoomAnnotation {
 /** Input shape accepted by POST /api/rooms/:id/annotations (client-generated). */
 export type RoomAnnotationInput = Omit<RoomAnnotation, 'seq' | 'votes' | 'status' | 'replies'>;
 
+/**
+ * Teammate → agent request flags. The room UI raises these; the polling agent
+ * acts on them at its next cycle and clears them. Raising a signal bumps
+ * `version` so the agent's changes-poll picks it up.
+ */
+export interface RoomSignals {
+  /** "커밋해줘" — commit+push the accumulated plan changes at the next cycle. */
+  commitRequestedA?: number;
+  /** Who asked (display name), for the commit body / cycle report. */
+  commitRequestedBy?: string;
+}
+
 export interface RoomChangelogEntry {
   version: number;
   planVersion?: number;
@@ -93,6 +105,7 @@ export interface RoomDoc {
   updatedA: number;
   annotations: RoomAnnotation[];
   changelog: RoomChangelogEntry[];
+  signals?: RoomSignals;
   /**
    * Superseded plan bodies (v1..current-1), newest last; the current body
    * lives in `plan`. Absent on docs created before this field existed.
@@ -112,6 +125,7 @@ export interface RoomSnapshot {
   updatedA: number;
   annotations: RoomAnnotation[];
   changelog: RoomChangelogEntry[];
+  signals?: RoomSignals;
 }
 
 export function toSnapshot(doc: RoomDoc): RoomSnapshot {

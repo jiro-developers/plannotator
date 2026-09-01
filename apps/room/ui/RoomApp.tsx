@@ -281,6 +281,18 @@ export function RoomApp({ roomId }: { roomId: string }) {
     [roomId, identity, refresh]
   );
 
+  const requestCommit = useCallback(() => {
+    fetch(`/api/rooms/${roomId}/signals/commit`, { method: 'POST' })
+      .then(async (response) => {
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        toast.success('커밋을 요청했어요 — 에이전트가 다음 확인 때(최대 3분) 누적 변경을 커밋·푸시합니다');
+        await refresh();
+      })
+      .catch((e: unknown) => {
+        toast.error(`커밋 요청 실패: ${e instanceof Error ? e.message : String(e)}`);
+      });
+  }, [roomId, refresh]);
+
   const copyRoomLink = useCallback(() => {
     void navigator.clipboard.writeText(window.location.href).then(() => {
       toast.success('방 링크를 복사했어요');
@@ -329,6 +341,23 @@ export function RoomApp({ roomId }: { roomId: string }) {
           >
             링크 복사
           </button>
+          {snapshot.signals?.commitRequestedA != null ? (
+            <span
+              className="rounded border border-amber-500/40 bg-amber-500/10 px-2 py-1 text-xs text-amber-600 dark:text-amber-400"
+              title={`${snapshot.signals.commitRequestedBy ?? '누군가'}님이 요청 — 에이전트가 다음 사이클에 커밋합니다`}
+            >
+              커밋 대기 중
+            </span>
+          ) : (
+            <button
+              type="button"
+              onClick={requestCommit}
+              className="rounded border border-border/60 px-2 py-1 text-xs text-muted-foreground hover:bg-muted"
+              title="에이전트에게 누적된 반영분을 git 커밋·푸시하도록 요청"
+            >
+              커밋 요청
+            </button>
+          )}
           <div className="ml-2 hidden items-center rounded-lg border border-border/60 p-0.5 md:flex">
             {MODE_OPTION_LIST.map((option) => (
               <button

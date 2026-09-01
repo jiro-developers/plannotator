@@ -367,6 +367,34 @@ export async function handleRoomRequest(
         return json(toSnapshot(doc));
       }
 
+      // Commit-request signal: a teammate asks the agent to commit accumulated
+      // plan changes. POST raises it (idempotent), DELETE clears it (agent ack).
+      if (subPath === '/signals/commit') {
+        if (request.method === 'POST') {
+          return await withRoomLock(roomId, async () => {
+            const doc = await loadRoom(store, roomId);
+            doc.signals ??= {};
+            doc.signals.commitRequestedA = Date.now();
+            if (actorName) doc.signals.commitRequestedBy = actorName;
+            touch(doc);
+            await store.put(roomId, doc);
+            return json({ signals: doc.signals, version: doc.version });
+          });
+        }
+        if (request.method === 'DELETE') {
+          return await withRoomLock(roomId, async () => {
+            const doc = await loadRoom(store, roomId);
+            if (doc.signals?.commitRequestedA != null) {
+              delete doc.signals.commitRequestedA;
+              delete doc.signals.commitRequestedBy;
+              touch(doc);
+              await store.put(roomId, doc);
+            }
+            return json({ signals: doc.signals ?? {}, version: doc.version });
+          });
+        }
+      }
+
       const planVersionMatch = subPath.match(/^\/plan-versions\/(\d+)$/);
       if (request.method === 'GET' && planVersionMatch) {
         const doc = await loadRoom(store, roomId);
