@@ -247,6 +247,20 @@ export async function handleRoomRequest(
       return json({ ok: true });
     }
 
+    // Canonical-domain redirect: with a public URL configured, requests on any
+    // other host (e.g. the *.railway.app alias) bounce to it. Cookies are
+    // per-domain, so letting users log in on an alias would strand the OAuth
+    // state/session cookies there and break the callback.
+    if (options.publicBaseUrl) {
+      const canonicalHost = new URL(options.publicBaseUrl).host;
+      if (url.host !== canonicalHost && url.hostname !== 'localhost' && url.hostname !== '127.0.0.1') {
+        return new Response(null, {
+          status: 301,
+          headers: { Location: `${options.publicBaseUrl}${url.pathname}${url.search}` },
+        });
+      }
+    }
+
     // The viewer's identity/config write-back — accept and discard so the
     // shared @plannotator/ui config store never sees console errors.
     if (url.pathname === '/api/config') {
