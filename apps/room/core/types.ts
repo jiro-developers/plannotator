@@ -75,6 +75,11 @@ export interface RoomSignals {
   commitRequestedA?: number;
   /** Who asked (display name), for the commit body / cycle report. */
   commitRequestedBy?: string;
+  /**
+   * planVersion as of the agent's last commit report (DELETE /signals/commit).
+   * The UI offers the commit button only while planVersion is ahead of this.
+   */
+  lastCommittedPlanVersion?: number;
 }
 
 export interface RoomChangelogEntry {

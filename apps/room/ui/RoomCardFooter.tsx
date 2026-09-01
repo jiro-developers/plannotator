@@ -92,12 +92,31 @@ export function RoomCardFooter({ annotation, identity, anchorLost, onVote, onRep
 
       {annotation.replies.length > 0 && (
         <div className="space-y-1.5">
-          {annotation.replies.map((reply, index) => (
-            <div key={index} className="rounded bg-muted/50 px-2 py-1.5">
-              <div className="mb-0.5 font-medium text-muted-foreground">{reply.author}</div>
-              <div className="whitespace-pre-wrap break-words text-foreground">{reply.text}</div>
-            </div>
-          ))}
+          {annotation.replies.map((reply, index) => {
+            const isAgent = reply.author === 'agent';
+            return (
+              <div
+                key={index}
+                className={`rounded-md border px-2.5 py-2 ${
+                  isAgent ? 'border-primary/30 bg-primary/5' : 'border-border/60 bg-background/70'
+                }`}
+              >
+                <div className="mb-1 flex items-center gap-1.5">
+                  {isAgent ? (
+                    <span className="rounded bg-primary/15 px-1.5 py-0.5 text-[10px] font-semibold text-primary">
+                      Agent
+                    </span>
+                  ) : (
+                    <span className="text-[11px] font-semibold text-foreground">{reply.author}</span>
+                  )}
+                  <span className="text-[10px] text-muted-foreground">
+                    {new Date(reply.createdA).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </span>
+                </div>
+                <div className="whitespace-pre-wrap break-words text-foreground">{reply.text}</div>
+              </div>
+            );
+          })}
         </div>
       )}
 

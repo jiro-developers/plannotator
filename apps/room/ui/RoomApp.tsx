@@ -341,23 +341,6 @@ export function RoomApp({ roomId }: { roomId: string }) {
           >
             링크 복사
           </button>
-          {snapshot.signals?.commitRequestedA != null ? (
-            <span
-              className="rounded border border-amber-500/40 bg-amber-500/10 px-2 py-1 text-xs text-amber-600 dark:text-amber-400"
-              title={`${snapshot.signals.commitRequestedBy ?? '누군가'}님이 요청 — 에이전트가 다음 사이클에 커밋합니다`}
-            >
-              커밋 대기 중
-            </span>
-          ) : (
-            <button
-              type="button"
-              onClick={requestCommit}
-              className="rounded border border-border/60 px-2 py-1 text-xs text-muted-foreground hover:bg-muted"
-              title="에이전트에게 누적된 반영분을 git 커밋·푸시하도록 요청"
-            >
-              커밋 요청
-            </button>
-          )}
           <div className="ml-2 hidden items-center rounded-lg border border-border/60 p-0.5 md:flex">
             {MODE_OPTION_LIST.map((option) => (
               <button
@@ -378,6 +361,25 @@ export function RoomApp({ roomId }: { roomId: string }) {
             ))}
           </div>
           <div className="ml-auto flex items-center gap-2 text-[11px] text-muted-foreground">
+            {snapshot.signals?.commitRequestedA != null ? (
+              <span
+                className="rounded-md border border-amber-500/40 bg-amber-500/10 px-2.5 py-1 text-xs font-medium text-amber-600 dark:text-amber-400"
+                title={`${snapshot.signals.commitRequestedBy ?? '누군가'}님이 요청 — 에이전트가 다음 사이클에 커밋합니다`}
+              >
+                커밋 대기 중
+              </span>
+            ) : (
+              snapshot.planVersion > (snapshot.signals?.lastCommittedPlanVersion ?? 1) && (
+                <button
+                  type="button"
+                  onClick={requestCommit}
+                  className="rounded-md bg-green-600 px-2.5 py-1 text-xs font-medium text-white shadow-sm transition-colors hover:bg-green-500"
+                  title="에이전트에게 누적된 반영분을 git 커밋·푸시하도록 요청"
+                >
+                  커밋 요청
+                </button>
+              )
+            )}
             <button
               type="button"
               onClick={() => setMode(resolvedMode === 'dark' ? 'light' : 'dark')}

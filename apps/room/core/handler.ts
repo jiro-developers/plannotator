@@ -382,15 +382,18 @@ export async function handleRoomRequest(
           });
         }
         if (request.method === 'DELETE') {
+          // The agent reports "committed up to the current planVersion" —
+          // clears any pending request and hides the commit button until the
+          // plan changes again. Called after every commit, requested or not.
           return await withRoomLock(roomId, async () => {
             const doc = await loadRoom(store, roomId);
-            if (doc.signals?.commitRequestedA != null) {
-              delete doc.signals.commitRequestedA;
-              delete doc.signals.commitRequestedBy;
-              touch(doc);
-              await store.put(roomId, doc);
-            }
-            return json({ signals: doc.signals ?? {}, version: doc.version });
+            doc.signals ??= {};
+            delete doc.signals.commitRequestedA;
+            delete doc.signals.commitRequestedBy;
+            doc.signals.lastCommittedPlanVersion = doc.planVersion;
+            touch(doc);
+            await store.put(roomId, doc);
+            return json({ signals: doc.signals, version: doc.version });
           });
         }
       }
