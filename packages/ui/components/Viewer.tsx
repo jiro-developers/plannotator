@@ -57,6 +57,12 @@ interface ViewerProps {
   onSelectAnnotation: (id: string | null) => void;
   selectedAnnotationId: string | null;
   mode: EditorMode;
+  /** Verify meta-restored highlights against the annotation's originalText
+   *  (documents that mutate under their annotations, e.g. room plans).
+   *  See useAnnotationHighlighter.verifyRestoredContent. Default false. */
+  verifyRestoredContent?: boolean;
+  /** Fires when an annotation could not be re-anchored to the current text. */
+  onRestoreMismatch?: (annotation: Annotation, restoredText: string) => void;
   inputMethod?: InputMethod;
   taterMode: boolean;
   globalAttachments?: ImageAttachment[];
@@ -169,6 +175,8 @@ export const Viewer = forwardRef<ViewerHandle, ViewerProps>(({
   onSelectAnnotation,
   selectedAnnotationId,
   mode,
+  verifyRestoredContent = false,
+  onRestoreMismatch,
   inputMethod = 'drag',
   taterMode,
   globalAttachments = [],
@@ -293,6 +301,8 @@ export const Viewer = forwardRef<ViewerHandle, ViewerProps>(({
     selectedAnnotationId,
     mode,
     enabled: !readOnly,
+    verifyRestoredContent,
+    onRestoreMismatch,
   });
 
   // Refs for code block annotation path

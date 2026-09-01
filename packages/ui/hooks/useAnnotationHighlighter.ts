@@ -239,8 +239,10 @@ export interface UseAnnotationHighlighterOptions {
    *  runs instead; if that also fails, `onRestoreMismatch` fires and nothing
    *  is painted. Default false — today's behavior (positions are trusted). */
   verifyRestoredContent?: boolean;
-  /** Fires when a restore was rejected (content mismatch) and the text-search
-   *  fallback could not re-anchor the annotation either. */
+  /** Fires when the annotation could not be re-anchored: a meta restore was
+   *  rejected (content mismatch) and/or the text-search fallback failed.
+   *  `restoredText` is the mismatched text a rejected restore painted, or ''
+   *  when nothing was painted at all. */
   onRestoreMismatch?: (annotation: Annotation, restoredText: string) => void;
 }
 
@@ -677,9 +679,7 @@ export function useAnnotationHighlighter({
 
       const range = findTextInDOM(ann.originalText);
       if (!range) {
-        if (rejectedRestoreText !== null) {
-          onRestoreMismatchRef.current?.(ann, rejectedRestoreText);
-        }
+        onRestoreMismatchRef.current?.(ann, rejectedRestoreText ?? '');
         console.warn(`Could not find text for annotation ${ann.id}: "${ann.originalText.slice(0, 50)}..."`);
         return;
       }
