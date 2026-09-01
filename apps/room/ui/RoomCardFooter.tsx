@@ -91,14 +91,14 @@ export function RoomCardFooter({ annotation, identity, anchorLost, onVote, onRep
       )}
 
       {annotation.replies.length > 0 && (
-        <div className="space-y-1.5">
+        <div className="ml-0.5 space-y-1.5 border-l-2 border-border/60 pl-2.5">
           {annotation.replies.map((reply, index) => {
             const isAgent = reply.author === 'agent';
             return (
               <div
                 key={index}
                 className={`rounded-md border px-2.5 py-2 ${
-                  isAgent ? 'border-primary/30 bg-primary/5' : 'border-border/60 bg-background/70'
+                  isAgent ? 'border-primary/30 bg-primary/10' : 'border-border bg-muted/70'
                 }`}
               >
                 <div className="mb-1 flex items-center gap-1.5">

@@ -106,6 +106,11 @@ export function RoomApp({ roomId }: { roomId: string }) {
     snapshotRef.current = snapshot;
   }, [snapshot]);
 
+  // 브라우저 탭에 방 제목 표시
+  useEffect(() => {
+    if (snapshot?.title) document.title = `${snapshot.title} · Plannotator Room`;
+  }, [snapshot?.title]);
+
   /** Merge a fresh server snapshot: clear highlights of removed annotations. */
   const applySnapshot = useCallback((next: RoomSnapshot) => {
     const nextIds = new Set(next.annotations.map((a) => a.id));
