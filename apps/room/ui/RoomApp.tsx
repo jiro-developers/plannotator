@@ -25,7 +25,7 @@ import {
 } from './api';
 import { RoomCardFooter } from './RoomCardFooter';
 import { EmojiAutocomplete } from './EmojiAutocomplete';
-import { ChangelogDiffModal } from './ChangelogDiffModal';
+import { HistoryModal } from './HistoryModal';
 
 const POLL_INTERVAL_MS = 10_000;
 /** Delay before re-anchoring highlights so the viewer DOM is fully rendered. */
@@ -54,9 +54,7 @@ export function RoomApp({ roomId }: { roomId: string }) {
   const paintedIdsRef = useRef<Set<string>>(new Set());
 
   const [identity, setIdentity] = useState(() => getIdentity());
-  const [showChangelog, setShowChangelog] = useState(false);
-  /** planVersion whose diff (vs its predecessor) is open in the modal. */
-  const [diffPlanVersion, setDiffPlanVersion] = useState<number | null>(null);
+  const [showHistory, setShowHistory] = useState(false);
   /** Annotations that no longer anchor to the current plan text (document drift). */
   const [lostAnchorIds, setLostAnchorIds] = useState<ReadonlySet<string>>(new Set());
 
@@ -317,61 +315,13 @@ export function RoomApp({ roomId }: { roomId: string }) {
           <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground">
             {roomId}
           </span>
-          <div className="relative hidden sm:block">
-            <button
-              type="button"
-              onClick={() => setShowChangelog((v) => !v)}
-              className={`rounded border px-2 py-1 text-[11px] transition-colors ${
-                showChangelog
-                  ? 'border-primary/40 bg-primary/10 text-primary'
-                  : 'border-border/60 text-muted-foreground hover:bg-muted'
-              }`}
-              title="변경 이력 보기"
-            >
-              plan v{snapshot.planVersion} ▾
-            </button>
-            {showChangelog && (
-              <div className="absolute left-0 top-full z-50 mt-1 max-h-80 w-80 overflow-y-auto rounded-lg border border-border/60 bg-background p-2 shadow-lg">
-                <div className="px-2 pb-1.5 pt-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                  변경 이력
-                </div>
-                {(snapshot.changelog ?? []).length === 0 && (
-                  <div className="px-2 py-3 text-xs text-muted-foreground">
-                    아직 변경 이력이 없어요 — 플랜이 갱신되면 여기에 쌓입니다.
-                  </div>
-                )}
-                {[...(snapshot.changelog ?? [])].reverse().map((entry) => (
-                  <div key={entry.version} className="rounded px-2 py-1.5 text-xs hover:bg-muted/60">
-                    <div className="flex items-baseline gap-2">
-                      {entry.planVersion != null && (
-                        <span className="font-mono text-[10px] font-semibold text-primary">
-                          v{entry.planVersion}
-                        </span>
-                      )}
-                      <span className="text-[10px] text-muted-foreground">
-                        {entry.author} · {new Date(entry.createdA).toLocaleString()}
-                      </span>
-                      {entry.planVersion != null && entry.planVersion >= 2 && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setDiffPlanVersion(entry.planVersion!);
-                            setShowChangelog(false);
-                          }}
-                          className="ml-auto rounded border border-border/60 px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-muted hover:text-foreground"
-                        >
-                          diff
-                        </button>
-                      )}
-                    </div>
-                    <div className="mt-0.5 whitespace-pre-wrap break-words text-foreground">
-                      {entry.note}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+          <button
+            type="button"
+            onClick={() => setShowHistory(true)}
+            className="hidden rounded border border-border/60 px-2 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-muted sm:block"
+          >
+            plan v{snapshot.planVersion} · 이력
+          </button>
           <button
             type="button"
             onClick={copyRoomLink}
@@ -488,11 +438,11 @@ export function RoomApp({ roomId }: { roomId: string }) {
           />
         </div>
       </div>
-      {diffPlanVersion != null && (
-        <ChangelogDiffModal
+      {showHistory && (
+        <HistoryModal
           roomId={roomId}
-          planVersion={diffPlanVersion}
-          onClose={() => setDiffPlanVersion(null)}
+          changelog={snapshot.changelog ?? []}
+          onClose={() => setShowHistory(false)}
         />
       )}
       <EmojiAutocomplete />
