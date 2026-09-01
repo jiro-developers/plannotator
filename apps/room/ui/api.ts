@@ -47,6 +47,16 @@ export function fetchRoom(roomId: string): Promise<RoomSnapshot> {
   return request<RoomSnapshot>(`/api/rooms/${roomId}`);
 }
 
+/** A stored plan body for one version. 404s for versions predating history storage. */
+export function fetchPlanVersion(
+  roomId: string,
+  planVersion: number
+): Promise<{ planVersion: number; plan: string }> {
+  return request<{ planVersion: number; plan: string }>(
+    `/api/rooms/${roomId}/plan-versions/${planVersion}`
+  );
+}
+
 /** Returns null when the room is unchanged (HTTP 304). */
 export async function fetchChanges(roomId: string, since: number): Promise<RoomSnapshot | null> {
   const response = await fetch(`/api/rooms/${roomId}/changes?since=${since}`);

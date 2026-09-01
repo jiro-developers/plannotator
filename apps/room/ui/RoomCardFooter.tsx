@@ -18,6 +18,8 @@ const STATUS_CLASS: Record<RoomAnnotationStatus, string> = {
 interface RoomCardFooterProps {
   annotation: RoomAnnotation;
   identity: string;
+  /** The annotation's originalText no longer exists in the current plan. */
+  anchorLost?: boolean;
   onVote: (annotationId: string) => void;
   onReply: (annotationId: string, text: string) => Promise<void>;
 }
@@ -26,7 +28,7 @@ interface RoomCardFooterProps {
  * Collaboration footer rendered inside each AnnotationPanel card:
  * vote toggle, agent/owner status badge, replies thread, reply input.
  */
-export function RoomCardFooter({ annotation, identity, onVote, onReply }: RoomCardFooterProps) {
+export function RoomCardFooter({ annotation, identity, anchorLost, onVote, onReply }: RoomCardFooterProps) {
   const [replyText, setReplyText] = useState('');
   const [sending, setSending] = useState(false);
   const [showReplyInput, setShowReplyInput] = useState(false);
@@ -49,6 +51,11 @@ export function RoomCardFooter({ annotation, identity, onVote, onReply }: RoomCa
 
   return (
     <div className="mt-2 border-t border-border/40 pt-2 space-y-2 text-xs">
+      {anchorLost && (
+        <div className="rounded bg-amber-500/10 px-2 py-1 text-[11px] text-amber-600 dark:text-amber-400">
+          문서가 갱신되어 본문에서 위치를 표시할 수 없어요 (위의 인용 원문 참고)
+        </div>
+      )}
       <div className="flex items-center gap-2">
         <button
           type="button"

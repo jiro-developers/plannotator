@@ -47,6 +47,8 @@ const ANNOTATION_STATUS_LIST: RoomAnnotationStatus[] = ['open', 'answered', 'ref
 const MAX_TEXT_LENGTH = 20_000;
 const MAX_AUTHOR_LENGTH = 120;
 const MAX_TITLE_LENGTH = 300;
+/** Superseded plan bodies kept per room for the history diff view. */
+const MAX_PLAN_HISTORY = 50;
 
 export class RoomError extends Error {
   constructor(
@@ -273,6 +275,18 @@ export async function handleRoomRequest(
         return json(toSnapshot(doc));
       }
 
+      const planVersionMatch = subPath.match(/^\/plan-versions\/(\d+)$/);
+      if (request.method === 'GET' && planVersionMatch) {
+        const doc = await loadRoom(store, roomId);
+        const v = Number.parseInt(planVersionMatch[1], 10);
+        if (v === doc.planVersion) {
+          return json({ planVersion: v, plan: doc.plan, createdA: doc.updatedA });
+        }
+        const stored = (doc.planHistory ?? []).find((entry) => entry.planVersion === v);
+        if (!stored) return json({ error: 'Version not found' }, 404);
+        return json(stored);
+      }
+
       if (request.method === 'GET' && subPath === '/changes') {
         const doc = await loadRoom(store, roomId);
         const since = Number.parseInt(url.searchParams.get('since') ?? '0', 10);
@@ -289,6 +303,10 @@ export async function handleRoomRequest(
         const author = optionalString(body.author, 'author', MAX_AUTHOR_LENGTH) ?? 'agent';
         return await withRoomLock(roomId, async () => {
           const doc = await loadRoom(store, roomId);
+          // Keep the superseded body so the UI can diff versions (bounded).
+          doc.planHistory ??= [];
+          doc.planHistory.push({ planVersion: doc.planVersion, plan: doc.plan, createdA: doc.updatedA });
+          while (doc.planHistory.length > MAX_PLAN_HISTORY) doc.planHistory.shift();
           doc.plan = plan;
           doc.planVersion += 1;
           touch(doc);

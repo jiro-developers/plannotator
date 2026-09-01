@@ -73,6 +73,13 @@ export interface RoomChangelogEntry {
   createdA: number;
 }
 
+/** A superseded plan body, kept so the UI can diff between versions. */
+export interface RoomPlanVersion {
+  planVersion: number;
+  plan: string;
+  createdA: number;
+}
+
 export interface RoomDoc {
   id: string;
   title: string;
@@ -86,6 +93,12 @@ export interface RoomDoc {
   updatedA: number;
   annotations: RoomAnnotation[];
   changelog: RoomChangelogEntry[];
+  /**
+   * Superseded plan bodies (v1..current-1), newest last; the current body
+   * lives in `plan`. Absent on docs created before this field existed.
+   * Excluded from snapshots — fetched per version via /plan-versions/:v.
+   */
+  planHistory?: RoomPlanVersion[];
 }
 
 /** Snapshot returned by GET /api/rooms/:id and /changes. */
@@ -102,6 +115,6 @@ export interface RoomSnapshot {
 }
 
 export function toSnapshot(doc: RoomDoc): RoomSnapshot {
-  const { seqCounter: _seqCounter, ...snapshot } = doc;
+  const { seqCounter: _seqCounter, planHistory: _planHistory, ...snapshot } = doc;
   return snapshot;
 }

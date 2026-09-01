@@ -7,7 +7,7 @@ import { TableOfContents } from '@plannotator/ui/components/TableOfContents';
 import { useTheme } from '@plannotator/ui/components/ThemeProvider';
 import { ScrollViewportProvider } from '@plannotator/ui/hooks/useScrollViewport';
 import { extractFrontmatter, parseMarkdownToBlocks } from '@plannotator/ui/utils/parser';
-import { getIdentity, isCurrentUser } from '@plannotator/ui/utils/identity';
+import { getIdentity, isCurrentUser, setCustomIdentity } from '@plannotator/ui/utils/identity';
 import { getEditorMode, saveEditorMode } from '@plannotator/ui/utils/editorMode';
 import type { Annotation, EditorMode } from '@plannotator/ui/types';
 import type { RoomSnapshot } from '../core/types';
@@ -24,6 +24,8 @@ import {
   toWireInput,
 } from './api';
 import { RoomCardFooter } from './RoomCardFooter';
+import { EmojiAutocomplete } from './EmojiAutocomplete';
+import { ChangelogDiffModal } from './ChangelogDiffModal';
 
 const POLL_INTERVAL_MS = 10_000;
 /** Delay before re-anchoring highlights so the viewer DOM is fully rendered. */
@@ -34,6 +36,7 @@ const MODE_OPTION_LIST: Array<{ id: EditorMode; label: string }> = [
   { id: 'comment', label: 'Comment' },
   { id: 'redline', label: 'Redline' },
 ];
+
 
 export function RoomApp({ roomId }: { roomId: string }) {
   const [snapshot, setSnapshot] = useState<RoomSnapshot | null>(null);
@@ -50,7 +53,35 @@ export function RoomApp({ roomId }: { roomId: string }) {
   /** Annotation ids whose highlight is currently painted in the viewer DOM. */
   const paintedIdsRef = useRef<Set<string>>(new Set());
 
-  const identity = useMemo(() => getIdentity(), []);
+  const [identity, setIdentity] = useState(() => getIdentity());
+  const [showChangelog, setShowChangelog] = useState(false);
+  /** planVersion whose diff (vs its predecessor) is open in the modal. */
+  const [diffPlanVersion, setDiffPlanVersion] = useState<number | null>(null);
+  /** Annotations that no longer anchor to the current plan text (document drift). */
+  const [lostAnchorIds, setLostAnchorIds] = useState<ReadonlySet<string>>(new Set());
+
+  const handleRestoreMismatch = useCallback((annotation: Annotation) => {
+    setLostAnchorIds((prev) => {
+      if (prev.has(annotation.id)) return prev;
+      const next = new Set(prev);
+      next.add(annotation.id);
+      return next;
+    });
+  }, []);
+
+  const renameIdentity = useCallback(() => {
+    const next = window.prompt('닉네임 변경 (이 브라우저의 모든 방에 적용)', identity);
+    if (next == null) return;
+    const trimmed = next.trim();
+    if (!trimmed || trimmed === identity) return;
+    if (trimmed === 'agent') {
+      toast.error('"agent"는 에이전트 전용 이름이에요');
+      return;
+    }
+    setCustomIdentity(trimmed);
+    setIdentity(trimmed);
+    toast.success(`닉네임을 "${trimmed}"(으)로 변경했어요 — 이전 코멘트의 작성자 표시는 바뀌지 않아요`);
+  }, [identity]);
 
   const plan = snapshot?.plan ?? '';
   const planVersion = snapshot?.planVersion ?? 0;
@@ -129,6 +160,8 @@ export function RoomApp({ roomId }: { roomId: string }) {
   useEffect(() => {
     if (planVersion === 0) return;
     paintedIdsRef.current = new Set();
+    // A new plan version may re-anchor previously lost annotations — retry all.
+    setLostAnchorIds(new Set());
     paintPending();
   }, [planVersion, paintPending]);
 
@@ -284,9 +317,61 @@ export function RoomApp({ roomId }: { roomId: string }) {
           <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground">
             {roomId}
           </span>
-          <span className="hidden text-[11px] text-muted-foreground sm:inline">
-            plan v{snapshot.planVersion}
-          </span>
+          <div className="relative hidden sm:block">
+            <button
+              type="button"
+              onClick={() => setShowChangelog((v) => !v)}
+              className={`rounded border px-2 py-1 text-[11px] transition-colors ${
+                showChangelog
+                  ? 'border-primary/40 bg-primary/10 text-primary'
+                  : 'border-border/60 text-muted-foreground hover:bg-muted'
+              }`}
+              title="변경 이력 보기"
+            >
+              plan v{snapshot.planVersion} ▾
+            </button>
+            {showChangelog && (
+              <div className="absolute left-0 top-full z-50 mt-1 max-h-80 w-80 overflow-y-auto rounded-lg border border-border/60 bg-background p-2 shadow-lg">
+                <div className="px-2 pb-1.5 pt-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                  변경 이력
+                </div>
+                {(snapshot.changelog ?? []).length === 0 && (
+                  <div className="px-2 py-3 text-xs text-muted-foreground">
+                    아직 변경 이력이 없어요 — 플랜이 갱신되면 여기에 쌓입니다.
+                  </div>
+                )}
+                {[...(snapshot.changelog ?? [])].reverse().map((entry) => (
+                  <div key={entry.version} className="rounded px-2 py-1.5 text-xs hover:bg-muted/60">
+                    <div className="flex items-baseline gap-2">
+                      {entry.planVersion != null && (
+                        <span className="font-mono text-[10px] font-semibold text-primary">
+                          v{entry.planVersion}
+                        </span>
+                      )}
+                      <span className="text-[10px] text-muted-foreground">
+                        {entry.author} · {new Date(entry.createdA).toLocaleString()}
+                      </span>
+                      {entry.planVersion != null && entry.planVersion >= 2 && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setDiffPlanVersion(entry.planVersion!);
+                            setShowChangelog(false);
+                          }}
+                          className="ml-auto rounded border border-border/60 px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-muted hover:text-foreground"
+                        >
+                          diff
+                        </button>
+                      )}
+                    </div>
+                    <div className="mt-0.5 whitespace-pre-wrap break-words text-foreground">
+                      {entry.note}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
           <button
             type="button"
             onClick={copyRoomLink}
@@ -328,9 +413,14 @@ export function RoomApp({ roomId }: { roomId: string }) {
                 동기화 {new Date(lastSyncA).toLocaleTimeString()}
               </span>
             )}
-            <span className="rounded-full bg-primary/10 px-2 py-0.5 font-medium text-primary">
-              {identity}
-            </span>
+            <button
+              type="button"
+              onClick={renameIdentity}
+              className="rounded-full bg-primary/10 px-2 py-0.5 font-medium text-primary hover:bg-primary/20"
+              title="클릭해서 닉네임 변경"
+            >
+              {identity} ✎
+            </button>
           </div>
         </header>
 
@@ -361,6 +451,8 @@ export function RoomApp({ roomId }: { roomId: string }) {
                 onSelectAnnotation={setSelectedAnnotationId}
                 selectedAnnotationId={selectedAnnotationId}
                 mode={editorMode}
+                verifyRestoredContent
+                onRestoreMismatch={handleRestoreMismatch}
                 taterMode={false}
                 stickyActions
                 gridEnabled
@@ -387,6 +479,7 @@ export function RoomApp({ roomId }: { roomId: string }) {
                 <RoomCardFooter
                   annotation={roomAnnotation}
                   identity={identity}
+                  anchorLost={lostAnchorIds.has(roomAnnotation.id)}
                   onVote={handleVote}
                   onReply={handleReply}
                 />
@@ -395,6 +488,14 @@ export function RoomApp({ roomId }: { roomId: string }) {
           />
         </div>
       </div>
+      {diffPlanVersion != null && (
+        <ChangelogDiffModal
+          roomId={roomId}
+          planVersion={diffPlanVersion}
+          onClose={() => setDiffPlanVersion(null)}
+        />
+      )}
+      <EmojiAutocomplete />
       <Toaster position="bottom-right" />
     </ScrollViewportProvider>
   );
