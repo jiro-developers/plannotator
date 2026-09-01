@@ -2,6 +2,16 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { setIdentityProvider } from '@plannotator/ui/utils/identity';
 
 /**
+ * Set while a Google session is active: renames the session's display name
+ * server-side (cookie reissue) and updates the identity provider. Null in
+ * no-auth mode — callers fall back to the tater cookie rename.
+ */
+let authedRename: ((name: string) => Promise<void>) | null = null;
+export function getAuthedRename() {
+  return authedRename;
+}
+
+/**
  * Blocks the app behind Google login when the server has auth enabled.
  *
  * - `/api/me` 200 {auth:false} → auth disabled, render children (tater identity)
@@ -25,12 +35,28 @@ export function AuthGate({ children }: { children: ReactNode }) {
           user?: { email: string; name: string };
         };
         if (me.auth && me.user) {
-          const name = me.user.name;
+          let name = me.user.name;
           setIdentityProvider({
             getIdentity: () => name,
             isCurrentUser: (author) => author === name,
-            isEditable: () => false,
+            isEditable: () => true,
           });
+          authedRename = async (next: string) => {
+            const res = await fetch('/api/me/name', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ name: next }),
+            });
+            if (!res.ok) {
+              let message = `HTTP ${res.status}`;
+              try {
+                const body = (await res.json()) as { error?: string };
+                if (body.error) message = body.error;
+              } catch {}
+              throw new Error(message);
+            }
+            name = next;
+          };
         }
         setPhase('ready');
       })

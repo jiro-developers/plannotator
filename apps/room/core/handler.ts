@@ -329,6 +329,21 @@ export async function handleRoomRequest(
       return json({ auth: true, user: { email: actor.email, name: actor.name } });
     }
 
+    // 표시 이름 변경: 이메일(실계정)은 그대로 두고 세션 쿠키를 새 이름으로
+    // 재발급한다. author 스탬프가 세션 이름을 쓰므로 서버가 곧바로 존중한다.
+    if (auth && url.pathname === '/api/me/name' && request.method === 'POST') {
+      const session = await verifySession(request, auth.sessionSecret);
+      if (!session) return json({ error: 'Unauthorized' }, 401);
+      const body = await readJson(request);
+      const name = requireString(body.name, 'name', MAX_AUTHOR_LENGTH).trim();
+      if (!name) return json({ error: '이름을 입력해 주세요' }, 400);
+      if (name.toLowerCase() === 'agent') return json({ error: '"agent"는 예약된 이름이에요' }, 400);
+      const headers = new Headers(cors);
+      headers.set('Content-Type', 'application/json');
+      headers.append('Set-Cookie', await createSessionCookie({ email: session.email, name }, auth.sessionSecret));
+      return new Response(JSON.stringify({ user: { email: session.email, name } }), { status: 200, headers });
+    }
+
     if (auth && url.pathname.startsWith('/api/rooms') && !actor) {
       return json({ error: 'Unauthorized' }, 401);
     }

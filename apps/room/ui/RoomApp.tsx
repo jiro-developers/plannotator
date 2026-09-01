@@ -27,6 +27,7 @@ import { RoomCardFooter } from './RoomCardFooter';
 import { EmojiAutocomplete } from './EmojiAutocomplete';
 import { HistoryModal } from './HistoryModal';
 import { ResizeHandle } from './ResizeHandle';
+import { getAuthedRename } from './AuthGate';
 
 const clampWidth = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
@@ -83,17 +84,28 @@ export function RoomApp({ roomId }: { roomId: string }) {
   }, []);
 
   const renameIdentity = useCallback(() => {
-    const next = window.prompt('닉네임 변경 (이 브라우저의 모든 방에 적용)', identity);
+    const next = window.prompt('닉네임 변경 (이후 작성하는 코멘트부터 적용)', identity);
     if (next == null) return;
     const trimmed = next.trim();
     if (!trimmed || trimmed === identity) return;
-    if (trimmed === 'agent') {
+    if (trimmed.toLowerCase() === 'agent') {
       toast.error('"agent"는 에이전트 전용 이름이에요');
       return;
     }
-    setCustomIdentity(trimmed);
-    setIdentity(trimmed);
-    toast.success(`닉네임을 "${trimmed}"(으)로 변경했어요 — 이전 코멘트의 작성자 표시는 바뀌지 않아요`);
+    const authRename = getAuthedRename();
+    const apply = authRename
+      ? authRename(trimmed)
+      : Promise.resolve().then(() => {
+          setCustomIdentity(trimmed);
+        });
+    apply
+      .then(() => {
+        setIdentity(trimmed);
+        toast.success(`닉네임을 "${trimmed}"(으)로 변경했어요 — 이전 코멘트의 작성자 표시는 바뀌지 않아요`);
+      })
+      .catch((e: unknown) => {
+        toast.error(`변경 실패: ${e instanceof Error ? e.message : String(e)}`);
+      });
   }, [identity]);
 
   const plan = snapshot?.plan ?? '';
