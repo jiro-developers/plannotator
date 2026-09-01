@@ -6,5 +6,8 @@ node_modules
 tests
 adr
 docs
-apps/marketing
-apps/vscode-extension
+# workspace install은 모든 package.json을 요구한다 — 내용만 제외하고 package.json은 남긴다
+apps/marketing/*
+!apps/marketing/package.json
+apps/vscode-extension/*
+!apps/vscode-extension/package.json
