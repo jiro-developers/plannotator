@@ -107,20 +107,18 @@ export function AckControl({ acks, planVersion, meConfirmed, onToggle }: AckCont
               {sorted.map((ack) => {
                 const stale = ack.planVersion < planVersion;
                 return (
-                  <div key={ack.key} className="flex items-baseline gap-2 rounded px-2 py-1.5 text-xs">
-                    <span className="truncate font-medium text-foreground">{ack.name}</span>
-                    {stale ? (
-                      <span
-                        className="ml-auto shrink-0 text-[10px] text-amber-600 dark:text-amber-400"
-                        title={`${new Date(ack.createdA).toLocaleString()} · v${ack.planVersion} 확인 후 문서가 갱신됐어요`}
-                      >
-                        v{ack.planVersion} · 이후 갱신됨
-                      </span>
-                    ) : (
-                      <span className="ml-auto shrink-0 text-[10px] text-muted-foreground">
-                        {new Date(ack.createdA).toLocaleString()}
-                      </span>
-                    )}
+                  <div key={ack.key} className="rounded px-2 py-1.5">
+                    <div className="flex items-baseline gap-2">
+                      <span className="truncate text-xs font-medium text-foreground">{ack.name}</span>
+                      {stale && (
+                        <span className="ml-auto shrink-0 text-[10px] text-amber-600 dark:text-amber-400">
+                          v{ack.planVersion} · 이후 갱신됨
+                        </span>
+                      )}
+                    </div>
+                    <div className="mt-0.5 text-[10px] text-muted-foreground">
+                      {new Date(ack.createdA).toLocaleString()} 확인
+                    </div>
                   </div>
                 );
               })}
