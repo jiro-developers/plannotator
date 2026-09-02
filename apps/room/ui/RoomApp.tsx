@@ -383,7 +383,7 @@ export function RoomApp({ roomId }: { roomId: string }) {
   return (
     <ScrollViewportProvider viewport={viewport}>
       <div className="flex h-screen flex-col bg-background text-foreground">
-        <header className="flex h-12 flex-shrink-0 items-center gap-3 border-b border-border/50 px-4">
+        <header className="relative z-40 flex h-12 flex-shrink-0 items-center gap-3 border-b border-border/50 bg-background px-4">
           <span className="truncate text-sm font-semibold">{snapshot.title}</span>
           <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground">
             {roomId}
