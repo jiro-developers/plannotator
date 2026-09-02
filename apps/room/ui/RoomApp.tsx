@@ -13,8 +13,10 @@ import type { Annotation, EditorMode } from '@plannotator/ui/types';
 import type { RoomSnapshot } from '../core/types';
 import {
   deleteAnnotation,
+  fetchAckSummaries,
   fetchChanges,
   fetchRoom,
+  type AckSummary,
   patchAnnotation,
   postAnnotation,
   postReply,
@@ -30,7 +32,9 @@ import { HistoryModal } from './HistoryModal';
 import { ResizeHandle } from './ResizeHandle';
 import { getAuthedRename } from './AuthGate';
 import { AckControl } from './AckControl';
+import { AckLinkBadge } from './AckLinkBadge';
 import { Tooltip } from './Tooltip';
+import { createPortal } from 'react-dom';
 
 const clampWidth = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
@@ -80,6 +84,10 @@ export function RoomApp({ roomId }: { roomId: string }) {
 
   const [identity, setIdentity] = useState(() => getIdentity());
   const [showHistory, setShowHistory] = useState(false);
+  /** 문서에 링크된 하위 방들의 확인 현황 (인덱스 문서용). */
+  const [ackSummaries, setAckSummaries] = useState<ReadonlyMap<string, AckSummary>>(new Map());
+  /** 렌더된 하위 방 링크 옆에 만든 배지 마운트 지점들. */
+  const [ackBadgeTargets, setAckBadgeTargets] = useState<Array<{ code: string; el: HTMLElement }>>([]);
   // 양쪽 사이드바 폭 — 드래그로 조절, 브라우저별로 기억
   const [tocWidth, setTocWidth] = useState(() => loadWidth('room.tocWidth', 240, 160, 480));
   const [panelWidth, setPanelWidth] = useState(() => loadWidth('room.panelWidth', 340, 260, 640));
@@ -216,6 +224,64 @@ export function RoomApp({ roomId }: { roomId: string }) {
   useEffect(() => {
     paintPending();
   }, [uiAnnotations, paintPending]);
+
+  // 문서에 링크된 하위 방 코드 추출 (인덱스 문서 지원)
+  const linkedRoomIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const match of plan.matchAll(/\/r\/([A-Za-z0-9]{6,16})/g)) {
+      if (match[1] !== roomId) ids.add(match[1]);
+    }
+    return [...ids];
+  }, [plan, roomId]);
+  const linkedRoomKey = linkedRoomIds.join(',');
+
+  // 하위 방 확인 현황 조회 — 초기 + 30초 주기 갱신
+  useEffect(() => {
+    if (linkedRoomIds.length === 0) {
+      setAckSummaries(new Map());
+      return;
+    }
+    let cancelled = false;
+    const load = () => {
+      fetchAckSummaries(linkedRoomIds)
+        .then(({ summaries }) => {
+          if (!cancelled) setAckSummaries(new Map(summaries.map((s) => [s.id, s])));
+        })
+        .catch(() => {
+          // 다음 주기에 재시도
+        });
+    };
+    load();
+    const timer = window.setInterval(load, 30_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [linkedRoomKey]);
+
+  // 렌더된 링크 옆에 배지 마운트 지점 삽입 (뷰어 리마운트마다 재스캔)
+  useEffect(() => {
+    if (!viewport || linkedRoomIds.length === 0) {
+      setAckBadgeTargets([]);
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      viewport.querySelectorAll('[data-ack-badge]').forEach((el) => el.remove());
+      const targets: Array<{ code: string; el: HTMLElement }> = [];
+      viewport.querySelectorAll<HTMLAnchorElement>('a[href*="/r/"]').forEach((anchor) => {
+        const match = anchor.getAttribute('href')?.match(/\/r\/([A-Za-z0-9]{6,16})/);
+        if (!match || match[1] === roomId) return;
+        const mount = document.createElement('span');
+        mount.setAttribute('data-ack-badge', match[1]);
+        anchor.insertAdjacentElement('afterend', mount);
+        targets.push({ code: match[1], el: mount });
+      });
+      setAckBadgeTargets(targets);
+    }, REPAINT_DELAY_MS + 100);
+    return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewport, planVersion, linkedRoomKey]);
 
   // Poll for changes
   useEffect(() => {
@@ -592,6 +658,11 @@ export function RoomApp({ roomId }: { roomId: string }) {
           onClose={() => setShowHistory(false)}
         />
       )}
+      {ackBadgeTargets.map(({ code, el }, index) => {
+        const summary = ackSummaries.get(code);
+        if (!summary) return null;
+        return createPortal(<AckLinkBadge summary={summary} />, el, `ack-badge-${index}-${code}`);
+      })}
       <EmojiAutocomplete />
       <Toaster position="bottom-right" />
     </ScrollViewportProvider>

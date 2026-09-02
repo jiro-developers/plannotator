@@ -114,6 +114,20 @@ export function toggleVote(
   });
 }
 
+export interface AckSummary {
+  id: string;
+  planVersion: number;
+  acks: import('../core/types').RoomAck[];
+}
+
+/** 인덱스 문서용: 링크된 하위 방들의 확인 현황 일괄 조회 (최대 60개). */
+export function fetchAckSummaries(ids: string[]): Promise<{ summaries: AckSummary[] }> {
+  return request('/api/rooms/ack-summaries', {
+    method: 'POST',
+    body: JSON.stringify({ ids }),
+  });
+}
+
 /** "문서 확인" 등록/취소. 인증 모드에선 세션 기준, 무인증 모드에선 author 필요. */
 export function setAck(
   roomId: string,

@@ -348,6 +348,25 @@ export async function handleRoomRequest(
       return json({ error: 'Unauthorized' }, 401);
     }
 
+    // 인덱스 문서용 배치 확인 요약: 링크된 하위 방들의 ack 현황을 한 번에 조회.
+    if (url.pathname === '/api/rooms/ack-summaries' && request.method === 'POST') {
+      const body = await readJson(request);
+      const idsRaw = (body as { ids?: unknown }).ids;
+      if (!Array.isArray(idsRaw)) throw new RoomError('"ids" must be an array', 400);
+      const ids = [
+        ...new Set(
+          idsRaw.filter((x): x is string => typeof x === 'string' && /^[A-Za-z0-9]{6,16}$/.test(x))
+        ),
+      ].slice(0, 60);
+      const summaries = [];
+      for (const id of ids) {
+        const doc = await store.get(id);
+        if (!doc) continue;
+        summaries.push({ id, planVersion: doc.planVersion, acks: doc.acks ?? [] });
+      }
+      return json({ summaries });
+    }
+
     if (url.pathname === '/api/rooms' && request.method === 'POST') {
       const body = await readJson(request);
       const plan = requireString(body.plan, 'plan', options.maxPlanSize);
