@@ -425,9 +425,7 @@ export function RoomApp({ roomId }: { roomId: string }) {
             <AckControl
               acks={snapshot.acks ?? []}
               planVersion={snapshot.planVersion}
-              meConfirmed={(snapshot.acks ?? []).some(
-                (a) => a.name === identity && a.planVersion >= snapshot.planVersion
-              )}
+              meConfirmed={(snapshot.acks ?? []).some((a) => a.name === identity)}
               onToggle={toggleAck}
             />
             {snapshot.signals?.commitRequestedA != null ? (

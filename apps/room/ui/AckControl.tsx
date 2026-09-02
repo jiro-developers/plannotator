@@ -54,7 +54,7 @@ export function AckControl({ acks, planVersion, meConfirmed, onToggle }: AckCont
     };
   }, [open]);
 
-  const currentCount = acks.filter((a) => a.planVersion >= planVersion).length;
+  // 확인은 갱신 여부와 무관하게 유효 — 전체 확인자를 센다.
   const sorted = [...acks].sort((a, b) => b.createdA - a.createdA);
 
   return (
@@ -71,7 +71,7 @@ export function AckControl({ acks, planVersion, meConfirmed, onToggle }: AckCont
         title="문서 확인한 사람 보기"
       >
         <span aria-hidden>✓</span>
-        <span className="tabular-nums">확인 {currentCount}</span>
+        <span className="tabular-nums">확인 {acks.length}</span>
       </button>
 
       {open && pos != null &&
@@ -112,7 +112,7 @@ export function AckControl({ acks, planVersion, meConfirmed, onToggle }: AckCont
                     {stale ? (
                       <span
                         className="ml-auto shrink-0 text-[10px] text-amber-600 dark:text-amber-400"
-                        title={`v${ack.planVersion} 확인 후 문서가 갱신됐어요`}
+                        title={`${new Date(ack.createdA).toLocaleString()} · v${ack.planVersion} 확인 후 문서가 갱신됐어요`}
                       >
                         v{ack.planVersion} · 이후 갱신됨
                       </span>
