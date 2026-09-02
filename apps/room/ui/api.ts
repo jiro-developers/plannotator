@@ -57,12 +57,17 @@ export function fetchPlanVersion(
   );
 }
 
-/** Returns null when the room is unchanged (HTTP 304). */
-export async function fetchChanges(roomId: string, since: number): Promise<RoomSnapshot | null> {
+/** `snapshot`은 변화 없음(HTTP 304)일 때 null. 에이전트 하트비트는 304에서도 헤더로 온다. */
+export async function fetchChanges(
+  roomId: string,
+  since: number
+): Promise<{ snapshot: RoomSnapshot | null; agentLastSeenA: number | null }> {
   const response = await fetch(`/api/rooms/${roomId}/changes?since=${since}`);
-  if (response.status === 304) return null;
+  const seenHeader = Number(response.headers.get('X-Agent-Last-Seen'));
+  const agentLastSeenA = Number.isFinite(seenHeader) && seenHeader > 0 ? seenHeader : null;
+  if (response.status === 304) return { snapshot: null, agentLastSeenA };
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
-  return (await response.json()) as RoomSnapshot;
+  return { snapshot: (await response.json()) as RoomSnapshot, agentLastSeenA };
 }
 
 export function createRoom(

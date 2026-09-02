@@ -427,11 +427,20 @@ export async function handleRoomRequest(
 
       if (request.method === 'GET' && subPath === '/changes') {
         const doc = await loadRoom(store, roomId);
-        const since = Number.parseInt(url.searchParams.get('since') ?? '0', 10);
-        if (Number.isFinite(since) && since >= doc.version) {
-          return new Response(null, { status: 304, headers: cors });
+        // Agent heartbeat: record the poll time without bumping `version`
+        // (a version bump would make the agent see its own poll as a change).
+        if (actor?.name === 'agent') {
+          doc.agentLastSeenA = Date.now();
+          await store.put(roomId, doc);
         }
-        return json(toSnapshot(doc));
+        const since = Number.parseInt(url.searchParams.get('since') ?? '0', 10);
+        const heartbeatHeaders: Record<string, string> = doc.agentLastSeenA
+          ? { ...cors, 'X-Agent-Last-Seen': String(doc.agentLastSeenA) }
+          : cors;
+        if (Number.isFinite(since) && since >= doc.version) {
+          return new Response(null, { status: 304, headers: heartbeatHeaders });
+        }
+        return Response.json(toSnapshot(doc), { headers: heartbeatHeaders });
       }
 
       if (request.method === 'PUT' && subPath === '/plan') {

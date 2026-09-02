@@ -112,6 +112,12 @@ export interface RoomDoc {
   changelog: RoomChangelogEntry[];
   signals?: RoomSignals;
   /**
+   * When the agent last polled /changes. A heartbeat, not a change — updated
+   * WITHOUT bumping `version` (else the agent would chase its own tail).
+   * Browsers read it via the X-Agent-Last-Seen response header each tick.
+   */
+  agentLastSeenA?: number;
+  /**
    * Superseded plan bodies (v1..current-1), newest last; the current body
    * lives in `plan`. Absent on docs created before this field existed.
    * Excluded from snapshots — fetched per version via /plan-versions/:v.
@@ -131,6 +137,7 @@ export interface RoomSnapshot {
   annotations: RoomAnnotation[];
   changelog: RoomChangelogEntry[];
   signals?: RoomSignals;
+  agentLastSeenA?: number;
 }
 
 export function toSnapshot(doc: RoomDoc): RoomSnapshot {

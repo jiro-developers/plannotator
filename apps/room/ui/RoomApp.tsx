@@ -36,6 +36,17 @@ function loadWidth(key: string, fallback: number, min: number, max: number): num
   return Number.isFinite(saved) && saved > 0 ? clampWidth(saved, min, max) : fallback;
 }
 
+function formatAgo(ts: number): string {
+  const diff = Date.now() - ts;
+  if (diff < 45_000) return '방금';
+  if (diff < 3_600_000) return `${Math.round(diff / 60_000)}분 전`;
+  if (diff < 86_400_000) return `${Math.round(diff / 3_600_000)}시간 전`;
+  return new Date(ts).toLocaleDateString();
+}
+
+/** 에이전트 폴링 주기(3분)보다 조금 여유 있게 — 이 안이면 "폴링 중"으로 본다. */
+const AGENT_FRESH_MS = 5 * 60_000;
+
 const POLL_INTERVAL_MS = 10_000;
 /** Delay before re-anchoring highlights so the viewer DOM is fully rendered. */
 const REPAINT_DELAY_MS = 150;
@@ -53,6 +64,8 @@ export function RoomApp({ roomId }: { roomId: string }) {
   const [selectedAnnotationId, setSelectedAnnotationId] = useState<string | null>(null);
   const [viewport, setViewport] = useState<HTMLElement | null>(null);
   const [lastSyncA, setLastSyncA] = useState<number | null>(null);
+  /** 에이전트가 마지막으로 이 방을 폴링한 시각 (서버 하트비트). */
+  const [agentSeenA, setAgentSeenA] = useState<number | null>(null);
   const [editorMode, setEditorMode] = useState<EditorMode>(getEditorMode);
   const [activeTocId, setActiveTocId] = useState<string | null>(null);
   const { resolvedMode, setMode } = useTheme();
@@ -165,6 +178,7 @@ export function RoomApp({ roomId }: { roomId: string }) {
       .then((doc) => {
         setSnapshot(doc);
         setLastSyncA(Date.now());
+        if (doc.agentLastSeenA) setAgentSeenA(doc.agentLastSeenA);
       })
       .catch((e: unknown) => {
         setLoadError(e instanceof Error ? e.message : 'Failed to load room');
@@ -206,7 +220,8 @@ export function RoomApp({ roomId }: { roomId: string }) {
       const current = snapshotRef.current;
       if (!current || document.hidden) return;
       try {
-        const next = await fetchChanges(roomId, current.version);
+        const { snapshot: next, agentLastSeenA } = await fetchChanges(roomId, current.version);
+        if (agentLastSeenA) setAgentSeenA(agentLastSeenA);
         if (next) {
           applySnapshot(next);
         } else {
@@ -420,12 +435,22 @@ export function RoomApp({ roomId }: { roomId: string }) {
             >
               {resolvedMode === 'dark' ? '☀️' : '🌙'}
             </button>
-            {lastSyncA && (
-              <span className="hidden items-center gap-1 sm:flex">
-                <span className="inline-block h-1.5 w-1.5 rounded-full bg-green-500" aria-hidden />
-                동기화 {new Date(lastSyncA).toLocaleTimeString()}
-              </span>
-            )}
+            <span
+              className="hidden items-center gap-1 sm:flex"
+              title={`에이전트가 마지막으로 이 방을 확인한 시각 기준${
+                lastSyncA ? ` · 브라우저 동기화 ${new Date(lastSyncA).toLocaleTimeString()}` : ''
+              }`}
+            >
+              <span
+                className={`inline-block h-1.5 w-1.5 rounded-full ${
+                  agentSeenA != null && Date.now() - agentSeenA < AGENT_FRESH_MS
+                    ? 'bg-green-500'
+                    : 'bg-muted-foreground/40'
+                }`}
+                aria-hidden
+              />
+              {agentSeenA != null ? `Agent 확인 ${formatAgo(agentSeenA)}` : 'Agent 미확인'}
+            </span>
             {isIdentityEditable() ? (
               <button
                 type="button"
