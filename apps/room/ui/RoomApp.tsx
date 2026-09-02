@@ -30,6 +30,7 @@ import { HistoryModal } from './HistoryModal';
 import { ResizeHandle } from './ResizeHandle';
 import { getAuthedRename } from './AuthGate';
 import { AckControl } from './AckControl';
+import { Tooltip } from './Tooltip';
 
 const clampWidth = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
@@ -429,57 +430,77 @@ export function RoomApp({ roomId }: { roomId: string }) {
               onToggle={toggleAck}
             />
             {snapshot.signals?.commitRequestedA != null ? (
-              <span
-                className="rounded-md border border-amber-500/40 bg-amber-500/10 px-2.5 py-1 text-xs font-medium text-amber-600 dark:text-amber-400"
-                title={`${snapshot.signals.commitRequestedBy ?? '누군가'}님이 요청 — 에이전트가 다음 사이클에 커밋합니다`}
+              <Tooltip
+                content={`${snapshot.signals.commitRequestedBy ?? '누군가'}님이 요청 — 에이전트가 다음 사이클에 커밋합니다`}
               >
-                커밋 대기 중
-              </span>
+                <span className="rounded-md border border-amber-500/40 bg-amber-500/10 px-2.5 py-1 text-xs font-medium text-amber-600 dark:text-amber-400">
+                  커밋 대기 중
+                </span>
+              </Tooltip>
             ) : (
               snapshot.planVersion > (snapshot.signals?.lastCommittedPlanVersion ?? 1) && (
-                <button
-                  type="button"
-                  onClick={requestCommit}
-                  className="rounded-md bg-green-600 px-2.5 py-1 text-xs font-medium text-white shadow-sm transition-colors hover:bg-green-500"
-                  title="에이전트에게 누적된 반영분을 git 커밋·푸시하도록 요청"
-                >
-                  커밋 요청
-                </button>
+                <Tooltip content="에이전트에게 누적된 반영분을 git 커밋·푸시하도록 요청">
+                  <button
+                    type="button"
+                    onClick={requestCommit}
+                    className="rounded-md bg-green-600 px-2.5 py-1 text-xs font-medium text-white shadow-sm transition-colors hover:bg-green-500"
+                  >
+                    커밋 요청
+                  </button>
+                </Tooltip>
               )
             )}
-            <button
-              type="button"
-              onClick={() => setMode(resolvedMode === 'dark' ? 'light' : 'dark')}
-              className="rounded border border-border/60 px-2 py-1 hover:bg-muted"
-              title="라이트/다크 전환"
-            >
-              {resolvedMode === 'dark' ? '☀️' : '🌙'}
-            </button>
-            <span
-              className="hidden items-center gap-1 sm:flex"
-              title={`에이전트가 마지막으로 이 방을 확인한 시각 기준${
-                lastSyncA ? ` · 브라우저 동기화 ${new Date(lastSyncA).toLocaleTimeString()}` : ''
-              }`}
-            >
-              <span
-                className={`inline-block h-1.5 w-1.5 rounded-full ${
-                  agentSeenA != null && Date.now() - agentSeenA < AGENT_FRESH_MS
-                    ? 'bg-green-500'
-                    : 'bg-muted-foreground/40'
-                }`}
-                aria-hidden
-              />
-              {agentSeenA != null ? `Agent 확인 ${formatAgo(agentSeenA)}` : 'Agent 미확인'}
-            </span>
-            {isIdentityEditable() ? (
+            <Tooltip content="라이트/다크 전환">
               <button
                 type="button"
-                onClick={renameIdentity}
-                className="rounded-full bg-primary/10 px-2 py-0.5 font-medium text-primary hover:bg-primary/20"
-                title="클릭해서 닉네임 변경"
+                onClick={() => setMode(resolvedMode === 'dark' ? 'light' : 'dark')}
+                className="rounded border border-border/60 px-2 py-1 hover:bg-muted"
               >
-                {identity} ✎
+                {resolvedMode === 'dark' ? '☀️' : '🌙'}
               </button>
+            </Tooltip>
+            <Tooltip
+              className="hidden sm:block"
+              content={
+                <>
+                  에이전트가 마지막으로 이 방을 확인한 시각 기준
+                  {agentSeenA != null && (
+                    <>
+                      <br />
+                      {new Date(agentSeenA).toLocaleString()} 확인
+                    </>
+                  )}
+                  {lastSyncA && (
+                    <>
+                      <br />
+                      브라우저 동기화 {new Date(lastSyncA).toLocaleTimeString()}
+                    </>
+                  )}
+                </>
+              }
+            >
+              <span className="flex items-center gap-1">
+                <span
+                  className={`inline-block h-1.5 w-1.5 rounded-full ${
+                    agentSeenA != null && Date.now() - agentSeenA < AGENT_FRESH_MS
+                      ? 'bg-green-500'
+                      : 'bg-muted-foreground/40'
+                  }`}
+                  aria-hidden
+                />
+                {agentSeenA != null ? `Agent 확인 ${formatAgo(agentSeenA)}` : 'Agent 미확인'}
+              </span>
+            </Tooltip>
+            {isIdentityEditable() ? (
+              <Tooltip content="클릭해서 닉네임 변경">
+                <button
+                  type="button"
+                  onClick={renameIdentity}
+                  className="rounded-full bg-primary/10 px-2 py-0.5 font-medium text-primary hover:bg-primary/20"
+                >
+                  {identity} ✎
+                </button>
+              </Tooltip>
             ) : (
               <span className="rounded-full bg-primary/10 px-2 py-0.5 font-medium text-primary">
                 {identity}

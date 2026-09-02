@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { RoomAck } from '../core/types';
+import { Tooltip } from './Tooltip';
 
 interface AckControlProps {
   acks: RoomAck[];
@@ -68,7 +69,6 @@ export function AckControl({ acks, planVersion, meConfirmed, onToggle }: AckCont
             ? 'border-green-500/40 bg-green-500/10 text-green-600 dark:text-green-400'
             : 'border-border/60 text-muted-foreground hover:bg-muted'
         }`}
-        title="문서 확인한 사람 보기"
       >
         <span aria-hidden>✓</span>
         <span className="tabular-nums">확인 {acks.length}</span>
@@ -107,19 +107,33 @@ export function AckControl({ acks, planVersion, meConfirmed, onToggle }: AckCont
               {sorted.map((ack) => {
                 const stale = ack.planVersion < planVersion;
                 return (
-                  <div key={ack.key} className="rounded px-2 py-1.5">
-                    <div className="flex items-baseline gap-2">
-                      <span className="truncate text-xs font-medium text-foreground">{ack.name}</span>
-                      {stale && (
+                  <Tooltip
+                    key={ack.key}
+                    className="block"
+                    content={
+                      <>
+                        {new Date(ack.createdA).toLocaleString()} 확인
+                        {stale && (
+                          <>
+                            <br />v{ack.planVersion} 확인 후 문서가 갱신됐어요
+                          </>
+                        )}
+                      </>
+                    }
+                  >
+                    <div className="flex items-baseline gap-2 rounded px-2 py-1.5 text-xs hover:bg-muted/60">
+                      <span className="truncate font-medium text-foreground">{ack.name}</span>
+                      {stale ? (
                         <span className="ml-auto shrink-0 text-[10px] text-amber-600 dark:text-amber-400">
                           v{ack.planVersion} · 이후 갱신됨
                         </span>
+                      ) : (
+                        <span className="ml-auto shrink-0 text-[10px] text-muted-foreground">
+                          {new Date(ack.createdA).toLocaleString()}
+                        </span>
                       )}
                     </div>
-                    <div className="mt-0.5 text-[10px] text-muted-foreground">
-                      {new Date(ack.createdA).toLocaleString()} 확인
-                    </div>
-                  </div>
+                  </Tooltip>
                 );
               })}
             </div>
