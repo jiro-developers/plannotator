@@ -413,6 +413,50 @@ export async function handleRoomRequest(
         }
       }
 
+      // Document acknowledgement ("문서 확인"): one record per user, keyed by a
+      // stable id (login email > display name) so a rename keeps the same ack.
+      if (subPath === '/acks') {
+        // The agent has no "read" concept — humans only.
+        const ackKey = actor && actor.email !== 'agent' ? actor.email : actorName;
+        const ackName = actorName;
+        if (request.method === 'POST') {
+          const body = await readJson(request).catch(() => ({}));
+          // Auth on: use the session. Auth off (local dev): trust the client author.
+          const key = ackKey ?? optionalString((body as { author?: unknown }).author, 'author', MAX_AUTHOR_LENGTH);
+          const name = ackName ?? key;
+          if (!key || !name) return json({ error: 'Unauthorized' }, 401);
+          return await withRoomLock(roomId, async () => {
+            const doc = await loadRoom(store, roomId);
+            doc.acks ??= [];
+            const existing = doc.acks.find((a) => a.key === key);
+            if (existing) {
+              existing.name = name;
+              existing.planVersion = doc.planVersion;
+              existing.createdA = Date.now();
+            } else {
+              doc.acks.push({ key, name, planVersion: doc.planVersion, createdA: Date.now() });
+            }
+            touch(doc);
+            await store.put(roomId, doc);
+            return json({ acks: doc.acks, version: doc.version });
+          });
+        }
+        if (request.method === 'DELETE') {
+          const body = await readJson(request).catch(() => ({}));
+          const key = ackKey ?? optionalString((body as { author?: unknown }).author, 'author', MAX_AUTHOR_LENGTH);
+          if (!key) return json({ error: 'Unauthorized' }, 401);
+          return await withRoomLock(roomId, async () => {
+            const doc = await loadRoom(store, roomId);
+            if (doc.acks?.some((a) => a.key === key)) {
+              doc.acks = doc.acks.filter((a) => a.key !== key);
+              touch(doc);
+              await store.put(roomId, doc);
+            }
+            return json({ acks: doc.acks ?? [], version: doc.version });
+          });
+        }
+      }
+
       const planVersionMatch = subPath.match(/^\/plan-versions\/(\d+)$/);
       if (request.method === 'GET' && planVersionMatch) {
         const doc = await loadRoom(store, roomId);

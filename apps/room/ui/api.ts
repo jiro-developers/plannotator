@@ -114,6 +114,18 @@ export function toggleVote(
   });
 }
 
+/** "문서 확인" 등록/취소. 인증 모드에선 세션 기준, 무인증 모드에선 author 필요. */
+export function setAck(
+  roomId: string,
+  confirmed: boolean,
+  author: string
+): Promise<{ acks: import('../core/types').RoomAck[]; version: number }> {
+  return request(`/api/rooms/${roomId}/acks`, {
+    method: confirmed ? 'POST' : 'DELETE',
+    body: JSON.stringify({ author }),
+  });
+}
+
 export function patchAnnotation(
   roomId: string,
   annotationId: string,

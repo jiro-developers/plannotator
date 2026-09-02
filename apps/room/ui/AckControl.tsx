@@ -1,0 +1,99 @@
+import { useEffect, useRef, useState } from 'react';
+import type { RoomAck } from '../core/types';
+
+interface AckControlProps {
+  acks: RoomAck[];
+  /** Current room plan version — acks below this are "확인 후 갱신됨" (stale). */
+  planVersion: number;
+  /** Whether the current user has confirmed the CURRENT version. */
+  meConfirmed: boolean;
+  onToggle: (confirmed: boolean) => void;
+}
+
+/**
+ * 문서 확인 컨트롤: 헤더의 "✓ 확인 N" 칩. 클릭하면 확인자 목록 팝오버가 열리고,
+ * 본인의 확인/취소 버튼이 있다. 확인 후 문서가 갱신된 사람은 "이후 갱신됨"으로 표시.
+ */
+export function AckControl({ acks, planVersion, meConfirmed, onToggle }: AckControlProps) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [open]);
+
+  const currentCount = acks.filter((a) => a.planVersion >= planVersion).length;
+  const sorted = [...acks].sort((a, b) => b.createdA - a.createdA);
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className={`flex items-center gap-1 rounded-md border px-2 py-1 text-xs transition-colors ${
+          meConfirmed
+            ? 'border-green-500/40 bg-green-500/10 text-green-600 dark:text-green-400'
+            : 'border-border/60 text-muted-foreground hover:bg-muted'
+        }`}
+        title="문서 확인한 사람 보기"
+      >
+        <span aria-hidden>✓</span>
+        <span className="tabular-nums">확인 {currentCount}</span>
+      </button>
+
+      {open && (
+        <div className="absolute right-0 top-full z-50 mt-1 w-64 overflow-hidden rounded-lg border border-border/60 bg-background shadow-lg">
+          <div className="border-b border-border/50 p-2">
+            <button
+              type="button"
+              onClick={() => {
+                onToggle(!meConfirmed);
+                if (!meConfirmed) setOpen(false);
+              }}
+              className={`w-full rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+                meConfirmed
+                  ? 'border border-border/60 text-muted-foreground hover:bg-muted'
+                  : 'bg-green-600 text-white hover:bg-green-500'
+              }`}
+            >
+              {meConfirmed ? '확인 취소' : '이 문서를 확인했어요'}
+            </button>
+          </div>
+
+          <div className="max-h-64 overflow-y-auto p-1">
+            {sorted.length === 0 && (
+              <div className="px-2 py-3 text-center text-xs text-muted-foreground">
+                아직 확인한 사람이 없어요
+              </div>
+            )}
+            {sorted.map((ack) => {
+              const stale = ack.planVersion < planVersion;
+              return (
+                <div key={ack.key} className="flex items-baseline gap-2 rounded px-2 py-1.5 text-xs">
+                  <span className="truncate font-medium text-foreground">{ack.name}</span>
+                  {stale ? (
+                    <span
+                      className="ml-auto shrink-0 text-[10px] text-amber-600 dark:text-amber-400"
+                      title={`v${ack.planVersion} 확인 후 문서가 갱신됐어요`}
+                    >
+                      v{ack.planVersion} · 이후 갱신됨
+                    </span>
+                  ) : (
+                    <span className="ml-auto shrink-0 text-[10px] text-muted-foreground">
+                      {new Date(ack.createdA).toLocaleString()}
+                    </span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

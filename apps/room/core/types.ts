@@ -90,6 +90,16 @@ export interface RoomChangelogEntry {
   createdA: number;
 }
 
+/** A teammate's "문서 확인" record — one per user, refreshed on re-confirm. */
+export interface RoomAck {
+  /** Stable user key — login email when authenticated, display name otherwise. */
+  key: string;
+  name: string;
+  /** planVersion the user confirmed; stale once < the room's current planVersion. */
+  planVersion: number;
+  createdA: number;
+}
+
 /** A superseded plan body, kept so the UI can diff between versions. */
 export interface RoomPlanVersion {
   planVersion: number;
@@ -111,6 +121,7 @@ export interface RoomDoc {
   annotations: RoomAnnotation[];
   changelog: RoomChangelogEntry[];
   signals?: RoomSignals;
+  acks?: RoomAck[];
   /**
    * When the agent last polled /changes. A heartbeat, not a change — updated
    * WITHOUT bumping `version` (else the agent would chase its own tail).
@@ -137,6 +148,7 @@ export interface RoomSnapshot {
   annotations: RoomAnnotation[];
   changelog: RoomChangelogEntry[];
   signals?: RoomSignals;
+  acks?: RoomAck[];
   agentLastSeenA?: number;
 }
 

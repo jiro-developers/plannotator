@@ -18,6 +18,7 @@ import {
   patchAnnotation,
   postAnnotation,
   postReply,
+  setAck,
   toggleVote,
   toOptimisticRoomAnnotation,
   toUiAnnotation,
@@ -28,6 +29,7 @@ import { EmojiAutocomplete } from './EmojiAutocomplete';
 import { HistoryModal } from './HistoryModal';
 import { ResizeHandle } from './ResizeHandle';
 import { getAuthedRename } from './AuthGate';
+import { AckControl } from './AckControl';
 
 const clampWidth = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
@@ -340,6 +342,18 @@ export function RoomApp({ roomId }: { roomId: string }) {
       });
   }, [roomId, refresh]);
 
+  const toggleAck = useCallback(
+    (confirmed: boolean) => {
+      setAck(roomId, confirmed, identity)
+        .then(() => refresh())
+        .then(() => toast.success(confirmed ? '문서를 확인했어요' : '확인을 취소했어요'))
+        .catch((e: unknown) => {
+          toast.error(`문서 확인 실패: ${e instanceof Error ? e.message : String(e)}`);
+        });
+    },
+    [roomId, identity, refresh]
+  );
+
   const copyRoomLink = useCallback(() => {
     void navigator.clipboard.writeText(window.location.href).then(() => {
       toast.success('방 링크를 복사했어요');
@@ -408,6 +422,14 @@ export function RoomApp({ roomId }: { roomId: string }) {
             ))}
           </div>
           <div className="ml-auto flex items-center gap-2 text-[11px] text-muted-foreground">
+            <AckControl
+              acks={snapshot.acks ?? []}
+              planVersion={snapshot.planVersion}
+              meConfirmed={(snapshot.acks ?? []).some(
+                (a) => a.name === identity && a.planVersion >= snapshot.planVersion
+              )}
+              onToggle={toggleAck}
+            />
             {snapshot.signals?.commitRequestedA != null ? (
               <span
                 className="rounded-md border border-amber-500/40 bg-amber-500/10 px-2.5 py-1 text-xs font-medium text-amber-600 dark:text-amber-400"
