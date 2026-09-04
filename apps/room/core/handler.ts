@@ -370,7 +370,14 @@ export async function handleRoomRequest(
     if (url.pathname === '/api/rooms' && request.method === 'POST') {
       const body = await readJson(request);
       const plan = requireString(body.plan, 'plan', options.maxPlanSize);
-      const title = optionalString(body.title, 'title', MAX_TITLE_LENGTH) ?? deriveTitle(plan);
+      const renderAsRaw = optionalString(body.renderAs, 'renderAs', 16);
+      if (renderAsRaw !== undefined && renderAsRaw !== 'markdown' && renderAsRaw !== 'html') {
+        throw new RoomError('"renderAs" must be "markdown" or "html"', 400);
+      }
+      const renderAs = renderAsRaw === 'html' ? ('html' as const) : undefined;
+      const title =
+        optionalString(body.title, 'title', MAX_TITLE_LENGTH) ??
+        (renderAs === 'html' ? deriveHtmlTitle(plan) : deriveTitle(plan));
       const author = actorName ?? optionalString(body.author, 'author', MAX_AUTHOR_LENGTH) ?? 'owner';
       const now = Date.now();
       const id = generateRoomId();
@@ -378,6 +385,7 @@ export async function handleRoomRequest(
         id,
         title,
         plan,
+        ...(renderAs ? { renderAs } : {}),
         planVersion: 1,
         version: 1,
         seqCounter: 0,
@@ -659,6 +667,13 @@ export async function handleRoomRequest(
 }
 
 /** First markdown heading (or first non-empty line) as the default title. */
+function deriveHtmlTitle(html: string): string {
+  const match = html.match(/<title[^>]*>([^<]{1,300})<\/title>/i);
+  const fromTitle = match?.[1]?.trim();
+  if (fromTitle) return fromTitle.slice(0, MAX_TITLE_LENGTH);
+  return 'HTML 문서';
+}
+
 function deriveTitle(plan: string): string {
   for (const line of plan.split('\n')) {
     const trimmed = line.trim();

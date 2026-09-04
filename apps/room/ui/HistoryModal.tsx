@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { computePlanDiff, type PlanDiffBlock, type PlanDiffStats } from '@plannotator/ui/utils/planDiffEngine';
 import { PlanCleanDiffView } from '@plannotator/ui/components/plan-diff/PlanCleanDiffView';
+import { PlanRawDiffView } from '@plannotator/ui/components/plan-diff/PlanRawDiffView';
 import type { RoomChangelogEntry } from '../core/types';
 import { fetchPlanVersion } from './api';
 import { DiffMinimap } from './DiffMinimap';
@@ -8,6 +9,8 @@ import { DiffMinimap } from './DiffMinimap';
 interface HistoryModalProps {
   roomId: string;
   changelog: RoomChangelogEntry[];
+  /** 'html'이면 소스 기준 raw(+/-) diff로 표시 — 마크다운 렌더 diff는 HTML을 망가뜨린다. */
+  renderAs?: 'markdown' | 'html';
   onClose: () => void;
 }
 
@@ -28,7 +31,7 @@ type DiffState =
  * Full-screen history browser: version list on the left, the selected
  * version's diff (vs its predecessor) on the right.
  */
-export function HistoryModal({ roomId, changelog, onClose }: HistoryModalProps) {
+export function HistoryModal({ roomId, changelog, renderAs, onClose }: HistoryModalProps) {
   // One row per planVersion (a version's note is its changelog entry), newest first.
   const versions = useMemo<VersionRow[]>(() => {
     const byVersion = new Map<number, VersionRow>();
@@ -197,7 +200,12 @@ export function HistoryModal({ roomId, changelog, onClose }: HistoryModalProps) 
                   {state.message}
                 </div>
               )}
-              {state.phase === 'ready' && <PlanCleanDiffView blocks={state.blocks} />}
+              {state.phase === 'ready' &&
+                (renderAs === 'html' ? (
+                  <PlanRawDiffView blocks={state.blocks} />
+                ) : (
+                  <PlanCleanDiffView blocks={state.blocks} />
+                ))}
             </div>
             </div>
           </div>

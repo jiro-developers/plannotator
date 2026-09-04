@@ -111,6 +111,8 @@ export interface RoomDoc {
   id: string;
   title: string;
   plan: string;
+  /** 'html'이면 plan이 raw HTML — sandbox iframe으로 렌더, global comment만 지원. */
+  renderAs?: 'markdown' | 'html';
   /** Bumps only when the plan markdown itself changes. */
   planVersion: number;
   /** Bumps on every mutation (plan, annotation, reply, vote, status). */
@@ -141,6 +143,7 @@ export interface RoomSnapshot {
   id: string;
   title: string;
   plan: string;
+  renderAs?: 'markdown' | 'html';
   planVersion: number;
   version: number;
   createdA: number;

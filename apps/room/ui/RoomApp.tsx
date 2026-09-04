@@ -9,7 +9,7 @@ import { ScrollViewportProvider } from '@plannotator/ui/hooks/useScrollViewport'
 import { extractFrontmatter, parseMarkdownToBlocks } from '@plannotator/ui/utils/parser';
 import { getIdentity, isCurrentUser, isIdentityEditable, setCustomIdentity } from '@plannotator/ui/utils/identity';
 import { getEditorMode, saveEditorMode } from '@plannotator/ui/utils/editorMode';
-import type { Annotation, EditorMode } from '@plannotator/ui/types';
+import { AnnotationType, type Annotation, type EditorMode } from '@plannotator/ui/types';
 import type { RoomSnapshot } from '../core/types';
 import {
   deleteAnnotation,
@@ -84,6 +84,9 @@ export function RoomApp({ roomId }: { roomId: string }) {
 
   const [identity, setIdentity] = useState(() => getIdentity());
   const [showHistory, setShowHistory] = useState(false);
+  /** html 모드의 global comment 입력 패널. */
+  const [showGlobalInput, setShowGlobalInput] = useState(false);
+  const [globalInputText, setGlobalInputText] = useState('');
   /** 문서에 링크된 하위 방들의 확인 현황 (인덱스 문서용). */
   const [ackSummaries, setAckSummaries] = useState<ReadonlyMap<string, AckSummary>>(new Map());
   /** 렌더된 하위 방 링크 옆에 만든 배지 마운트 지점들. */
@@ -134,12 +137,14 @@ export function RoomApp({ roomId }: { roomId: string }) {
 
   const plan = snapshot?.plan ?? '';
   const planVersion = snapshot?.planVersion ?? 0;
+  /** 'html'이면 본문을 sandbox iframe으로 렌더하고 global comment만 지원한다. */
+  const isHtml = snapshot?.renderAs === 'html';
 
   const { frontmatter, content } = useMemo(() => {
-    if (!plan) return { frontmatter: null, content: '' };
+    if (!plan || isHtml) return { frontmatter: null, content: '' };
     const extracted = extractFrontmatter(plan);
     return { frontmatter: extracted.frontmatter, content: extracted.content };
-  }, [plan]);
+  }, [plan, isHtml]);
 
   const blocks = useMemo(() => parseMarkdownToBlocks(content), [content]);
 
@@ -409,6 +414,25 @@ export function RoomApp({ roomId }: { roomId: string }) {
       });
   }, [roomId, refresh]);
 
+  const submitGlobalComment = useCallback(
+    (text: string) => {
+      const trimmed = text.trim();
+      if (!trimmed) return;
+      handleAddAnnotation({
+        id: crypto.randomUUID(),
+        blockId: '',
+        startOffset: 0,
+        endOffset: 0,
+        type: AnnotationType.GLOBAL_COMMENT,
+        text: trimmed,
+        originalText: '',
+        createdA: Date.now(),
+        author: identity,
+      });
+    },
+    [identity, handleAddAnnotation]
+  );
+
   const toggleAck = useCallback(
     (confirmed: boolean) => {
       setAck(roomId, confirmed, identity)
@@ -469,25 +493,35 @@ export function RoomApp({ roomId }: { roomId: string }) {
           >
             링크 복사
           </button>
-          <div className="ml-2 hidden items-center rounded-lg border border-border/60 p-0.5 md:flex">
-            {MODE_OPTION_LIST.map((option) => (
-              <button
-                key={option.id}
-                type="button"
-                onClick={() => {
-                  setEditorMode(option.id);
-                  saveEditorMode(option.id);
-                }}
-                className={`rounded-md px-2.5 py-1 text-xs transition-colors ${
-                  editorMode === option.id
-                    ? 'bg-primary text-primary-foreground'
-                    : 'text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                {option.label}
-              </button>
-            ))}
-          </div>
+          {isHtml ? (
+            <button
+              type="button"
+              onClick={() => setShowGlobalInput(true)}
+              className="ml-2 rounded-md border border-border/60 px-2.5 py-1 text-xs text-muted-foreground hover:bg-muted"
+            >
+              💬 Global comment
+            </button>
+          ) : (
+            <div className="ml-2 hidden items-center rounded-lg border border-border/60 p-0.5 md:flex">
+              {MODE_OPTION_LIST.map((option) => (
+                <button
+                  key={option.id}
+                  type="button"
+                  onClick={() => {
+                    setEditorMode(option.id);
+                    saveEditorMode(option.id);
+                  }}
+                  className={`rounded-md px-2.5 py-1 text-xs transition-colors ${
+                    editorMode === option.id
+                      ? 'bg-primary text-primary-foreground'
+                      : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          )}
           <div className="ml-auto flex items-center gap-2 text-[11px] text-muted-foreground">
             <AckControl
               acks={snapshot.acks ?? []}
@@ -576,50 +610,67 @@ export function RoomApp({ roomId }: { roomId: string }) {
         </header>
 
         <div className="flex min-h-0 flex-1">
-          <aside
-            style={{ width: tocWidth }}
-            className="hidden shrink-0 overflow-y-auto border-r border-border/50 px-2 py-4 lg:block"
-          >
-            <TableOfContents
-              blocks={blocks}
-              annotations={uiAnnotations}
-              activeId={activeTocId}
-              onNavigate={setActiveTocId}
-            />
-          </aside>
-          <ResizeHandle
-            className="hidden lg:block"
-            onDelta={(dx) => setTocWidth((w) => clampWidth(w + dx, 160, 480))}
-            onEnd={() => localStorage.setItem('room.tocWidth', String(tocWidthRef.current))}
-          />
+          {!isHtml && (
+            <>
+              <aside
+                style={{ width: tocWidth }}
+                className="hidden shrink-0 overflow-y-auto border-r border-border/50 px-2 py-4 lg:block"
+              >
+                <TableOfContents
+                  blocks={blocks}
+                  annotations={uiAnnotations}
+                  activeId={activeTocId}
+                  onNavigate={setActiveTocId}
+                />
+              </aside>
+              <ResizeHandle
+                className="hidden lg:block"
+                onDelta={(dx) => setTocWidth((w) => clampWidth(w + dx, 160, 480))}
+                onEnd={() => localStorage.setItem('room.tocWidth', String(tocWidthRef.current))}
+              />
+            </>
+          )}
 
-          <OverlayScrollArea
-            element="main"
-            className="bg-grid min-w-0 flex-1"
-            onViewportReady={setViewport}
-          >
-            <div className="mx-auto max-w-4xl px-6 py-8">
-              <Viewer
+          {isHtml ? (
+            <div className="min-w-0 flex-1">
+              <iframe
                 key={planVersion}
-                ref={viewerRef}
-                blocks={blocks}
-                markdown={content}
-                frontmatter={frontmatter}
-                annotations={uiAnnotations}
-                onAddAnnotation={handleAddAnnotation}
-                onSelectAnnotation={setSelectedAnnotationId}
-                selectedAnnotationId={selectedAnnotationId}
-                mode={editorMode}
-                verifyRestoredContent
-                onRestoreMismatch={handleRestoreMismatch}
-                taterMode={false}
-                stickyActions
-                gridEnabled
-                allowImages={false}
-                disableCodePathValidation
+                title={snapshot.title}
+                srcDoc={plan}
+                sandbox="allow-scripts allow-popups"
+                className="h-full w-full border-0"
+                style={{ background: '#fff', colorScheme: 'light' }}
               />
             </div>
-          </OverlayScrollArea>
+          ) : (
+            <OverlayScrollArea
+              element="main"
+              className="bg-grid min-w-0 flex-1"
+              onViewportReady={setViewport}
+            >
+              <div className="mx-auto max-w-4xl px-6 py-8">
+                <Viewer
+                  key={planVersion}
+                  ref={viewerRef}
+                  blocks={blocks}
+                  markdown={content}
+                  frontmatter={frontmatter}
+                  annotations={uiAnnotations}
+                  onAddAnnotation={handleAddAnnotation}
+                  onSelectAnnotation={setSelectedAnnotationId}
+                  selectedAnnotationId={selectedAnnotationId}
+                  mode={editorMode}
+                  verifyRestoredContent
+                  onRestoreMismatch={handleRestoreMismatch}
+                  taterMode={false}
+                  stickyActions
+                  gridEnabled
+                  allowImages={false}
+                  disableCodePathValidation
+                />
+              </div>
+            </OverlayScrollArea>
+          )}
 
           <ResizeHandle
             onDelta={(dx) => setPanelWidth((w) => clampWidth(w - dx, 260, 640))}
@@ -655,6 +706,7 @@ export function RoomApp({ roomId }: { roomId: string }) {
         <HistoryModal
           roomId={roomId}
           changelog={snapshot.changelog ?? []}
+          renderAs={snapshot.renderAs}
           onClose={() => setShowHistory(false)}
         />
       )}
@@ -663,6 +715,57 @@ export function RoomApp({ roomId }: { roomId: string }) {
         if (!summary) return null;
         return createPortal(<AckLinkBadge summary={summary} />, el, `ack-badge-${index}-${code}`);
       })}
+      {showGlobalInput && (
+        <div
+          className="fixed inset-0 z-[9000] flex items-start justify-center bg-black/40 pt-24"
+          onClick={() => setShowGlobalInput(false)}
+        >
+          <div
+            className="w-full max-w-lg rounded-xl border border-border/60 bg-background p-4 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mb-2 text-sm font-semibold">Global comment</div>
+            <textarea
+              autoFocus
+              value={globalInputText}
+              onChange={(e) => setGlobalInputText(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                  e.preventDefault();
+                  submitGlobalComment(globalInputText);
+                  setGlobalInputText('');
+                  setShowGlobalInput(false);
+                }
+                if (e.key === 'Escape') setShowGlobalInput(false);
+              }}
+              rows={4}
+              placeholder="문서 전체에 대한 코멘트… (⌘+Enter 전송)"
+              className="w-full resize-none rounded-md border border-border/60 bg-background px-3 py-2 text-sm outline-none focus:border-primary/50"
+            />
+            <div className="mt-2 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setShowGlobalInput(false)}
+                className="rounded-md border border-border/60 px-3 py-1.5 text-xs text-muted-foreground hover:bg-muted"
+              >
+                취소
+              </button>
+              <button
+                type="button"
+                disabled={!globalInputText.trim()}
+                onClick={() => {
+                  submitGlobalComment(globalInputText);
+                  setGlobalInputText('');
+                  setShowGlobalInput(false);
+                }}
+                className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground disabled:opacity-50"
+              >
+                코멘트 남기기
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       <EmojiAutocomplete />
       <Toaster position="bottom-right" />
     </ScrollViewportProvider>
