@@ -325,7 +325,9 @@ export async function handleRoomRequest(
 
     if (url.pathname === '/api/me') {
       if (!auth) return json({ auth: false });
-      if (!actor) return json({ error: 'Unauthorized' }, 401);
+      // 로그인 화면이 허용 도메인을 안내할 수 있도록 401에도 실어 보낸다.
+      // (도메인은 OAuth `hd` 파라미터로 이미 공개되는 값이라 비밀이 아니다)
+      if (!actor) return json({ error: 'Unauthorized', domain: auth.allowedDomain }, 401);
       return json({ auth: true, user: { email: actor.email, name: actor.name } });
     }
 

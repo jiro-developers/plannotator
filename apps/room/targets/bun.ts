@@ -15,17 +15,21 @@ const allowedOrigins = getAllowedOrigins(process.env.ROOM_ALLOWED_ORIGINS);
 const publicBaseUrl = process.env.ROOM_PUBLIC_URL?.replace(/\/$/, '');
 const databaseUrl = process.env.DATABASE_URL;
 
-// Google 로그인은 세 변수가 모두 있어야 켜진다 — 없으면 기존 무인증 모드.
+// Google 로그인은 네 변수가 모두 있어야 켜진다 — 하나라도 없으면 무인증 모드.
+// 허용 도메인에 기본값을 두지 않는 건 의도적이다: 설정을 빠뜨린 배포가
+// 조용히 남의 도메인을 허용하거나 아무도 못 들어오는 상태가 되지 않도록,
+// 명시적으로 지정해야만 인증이 켜진다.
 const googleClientId = process.env.GOOGLE_CLIENT_ID;
 const googleClientSecret = process.env.GOOGLE_CLIENT_SECRET;
 const sessionSecret = process.env.ROOM_SESSION_SECRET;
+const allowedDomain = process.env.ROOM_ALLOWED_EMAIL_DOMAIN;
 const auth =
-  googleClientId && googleClientSecret && sessionSecret
+  googleClientId && googleClientSecret && sessionSecret && allowedDomain
     ? {
         googleClientId,
         googleClientSecret,
         sessionSecret,
-        allowedDomain: process.env.ROOM_ALLOWED_EMAIL_DOMAIN || 'jirocorp.io',
+        allowedDomain,
         agentToken: process.env.ROOM_AGENT_TOKEN || undefined,
       }
     : undefined;
@@ -79,5 +83,5 @@ console.log(`Room TTL: ${ttlDays} days`);
 console.log(
   auth
     ? `Auth: google (@${auth.allowedDomain}${auth.agentToken ? ', agent token set' : ', NO agent token'})`
-    : 'Auth: disabled (no GOOGLE_CLIENT_ID/GOOGLE_CLIENT_SECRET/ROOM_SESSION_SECRET)'
+    : 'Auth: disabled (needs GOOGLE_CLIENT_ID + GOOGLE_CLIENT_SECRET + ROOM_SESSION_SECRET + ROOM_ALLOWED_EMAIL_DOMAIN)'
 );

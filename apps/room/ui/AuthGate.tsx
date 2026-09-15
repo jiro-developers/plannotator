@@ -21,11 +21,19 @@ export function getAuthedRename() {
  */
 export function AuthGate({ children }: { children: ReactNode }) {
   const [phase, setPhase] = useState<'loading' | 'anon' | 'ready'>('loading');
+  /** 서버가 알려주는 로그인 허용 도메인 (하드코딩하지 않는다). */
+  const [allowedDomain, setAllowedDomain] = useState<string | null>(null);
 
   useEffect(() => {
     fetch('/api/me')
       .then(async (response) => {
         if (response.status === 401) {
+          try {
+            const body = (await response.json()) as { domain?: string };
+            if (body.domain) setAllowedDomain(body.domain);
+          } catch {
+            // 도메인 안내 없이 로그인 화면만 보여준다
+          }
           setPhase('anon');
           return;
         }
@@ -95,7 +103,9 @@ export function AuthGate({ children }: { children: ReactNode }) {
           </svg>
           Google로 로그인
         </a>
-        <p className="text-xs text-muted-foreground">jirocorp.io 계정만 입장할 수 있어요</p>
+        {allowedDomain && (
+          <p className="text-xs text-muted-foreground">{allowedDomain} 계정만 입장할 수 있어요</p>
+        )}
       </div>
     );
   }
