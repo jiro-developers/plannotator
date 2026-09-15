@@ -1,3 +1,13 @@
+> ### 🏷️ 이 저장소는 [backnotprop/plannotator](https://github.com/backnotprop/plannotator)의 fork입니다
+>
+> 원본에 **`apps/room`** — 팀 플랜 리뷰용 셀프호스팅 협업 서비스를 추가했습니다.
+> 플랜 문서를 링크 하나로 공유하면 팀원들이 인라인 코멘트·투표·답글·문서 확인을 남기고,
+> AI 에이전트가 그걸 폴링해 원본 마크다운에 반영합니다.
+> 자세한 내용과 셀프호스팅 방법은 **[apps/room/README.md](apps/room/README.md)** 를 보세요.
+>
+> 그 외 변경: `packages/ui`의 Viewer에 하이라이트 복원 검증 seam 추가(`verifyRestoredContent`).
+> 원본 기능은 그대로이며, 라이선스(MIT / Apache-2.0 듀얼)도 원본을 따릅니다.
+
 <p align="center">
   <img src=".github/assets/banner.webp" alt="Plannotator" width="640" />
 </p>
