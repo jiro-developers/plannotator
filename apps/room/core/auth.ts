@@ -15,7 +15,7 @@ export interface RoomAuthConfig {
   googleClientSecret: string;
   /** HMAC key for session cookies. */
   sessionSecret: string;
-  /** Workspace domain allowed to log in, e.g. "jirocorp.io". */
+  /** Workspace domain allowed to log in, e.g. "example.com". */
   allowedDomain: string;
   /** Shared bearer token for agent (REST) access. Optional. */
   agentToken?: string;
