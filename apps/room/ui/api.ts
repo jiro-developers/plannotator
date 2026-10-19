@@ -60,9 +60,11 @@ export function fetchPlanVersion(
 /** `snapshot`은 변화 없음(HTTP 304)일 때 null. 에이전트 하트비트는 304에서도 헤더로 온다. */
 export async function fetchChanges(
   roomId: string,
-  since: number
+  since: number,
+  waitSeconds = 0,
+  signal?: AbortSignal
 ): Promise<{ snapshot: RoomSnapshot | null; agentLastSeenA: number | null }> {
-  const response = await fetch(`/api/rooms/${roomId}/changes?since=${since}`);
+  const response = await fetch(`/api/rooms/${roomId}/changes?since=${since}&wait=${waitSeconds}`, { signal });
   const seenHeader = Number(response.headers.get('X-Agent-Last-Seen'));
   const agentLastSeenA = Number.isFinite(seenHeader) && seenHeader > 0 ? seenHeader : null;
   if (response.status === 304) return { snapshot: null, agentLastSeenA };

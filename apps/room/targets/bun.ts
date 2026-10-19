@@ -1,6 +1,6 @@
 import { homedir } from 'os';
 import { join } from 'path';
-import { DEFAULT_MAX_PLAN_SIZE, handleRoomRequest } from '../core/handler';
+import { DEFAULT_MAX_PLAN_SIZE, MAX_CHANGES_WAIT_SECONDS, handleRoomRequest } from '../core/handler';
 import { corsHeaders, getAllowedOrigins } from '../core/cors';
 import type { RoomStore } from '../core/storage';
 import { FsRoomStore } from '../stores/fs';
@@ -64,6 +64,8 @@ async function serveApp(): Promise<Response> {
 
 Bun.serve({
   port,
+  // Default is 10s — long-polled `/changes?wait=` must outlive its max wait.
+  idleTimeout: MAX_CHANGES_WAIT_SECONDS + 10,
   async fetch(request) {
     const url = new URL(request.url);
     if (url.pathname === '/favicon.png') {

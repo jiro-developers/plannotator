@@ -52,7 +52,7 @@ bun run serve:room          # http://localhost:19434
 |---|---|---|
 | `POST` | `/api/rooms` | `{plan, title?, author?, renderAs?}` → `{id, url, version}`. `renderAs: "html"`이면 raw HTML 방(아래) |
 | `GET` | `/api/rooms/:id` | 전체 스냅샷 |
-| `GET` | `/api/rooms/:id/changes?since=N` | 변화 없으면 `304`. 에이전트 폴링 시각을 기록하고 `X-Agent-Last-Seen` 헤더로 회신 |
+| `GET` | `/api/rooms/:id/changes?since=N[&wait=S]` | 변화 없으면 `304`. `wait`(초, 최대 30)를 주면 변화가 생길 때까지 최대 S초 응답을 미루는 long-poll — 새 코멘트가 오는 즉시 snapshot으로 응답. 에이전트 폴링 시각을 기록하고 `X-Agent-Last-Seen` 헤더로 회신 |
 | `GET` | `/api/rooms/:id/plan-versions/:v` | 특정 버전의 플랜 본문 (이력 diff용, 방당 최대 50버전 보존) |
 | `PUT` | `/api/rooms/:id/plan` | `{plan, note?, author?}` → planVersion 증가, changelog 기록 |
 | `POST` | `/api/rooms/:id/annotations` | 뷰어 Annotation 필드 + `author` (id는 클라이언트 생성) |
