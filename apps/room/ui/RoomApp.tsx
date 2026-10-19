@@ -55,6 +55,7 @@ function formatAgo(ts: number): string {
 const AGENT_FRESH_MS = 5 * 60_000;
 
 const POLL_INTERVAL_MS = 10_000;
+const LONG_POLL_WAIT_SECONDS = 25;
 /** Delay before re-anchoring highlights so the viewer DOM is fully rendered. */
 const REPAINT_DELAY_MS = 150;
 
@@ -288,24 +289,41 @@ export function RoomApp({ roomId }: { roomId: string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [viewport, planVersion, linkedRoomKey]);
 
-  // Poll for changes
+  // Long-poll for changes: the server holds each request until the room is
+  // written or LONG_POLL_WAIT_SECONDS pass, so the next request goes out right away.
   useEffect(() => {
-    const timer = window.setInterval(async () => {
-      const current = snapshotRef.current;
-      if (!current || document.hidden) return;
-      try {
-        const { snapshot: next, agentLastSeenA } = await fetchChanges(roomId, current.version);
-        if (agentLastSeenA) setAgentSeenA(agentLastSeenA);
-        if (next) {
-          applySnapshot(next);
-        } else {
-          setLastSyncA(Date.now());
+    const controller = new AbortController();
+    const pause = () => new Promise((resolve) => window.setTimeout(resolve, POLL_INTERVAL_MS));
+    void (async () => {
+      while (!controller.signal.aborted) {
+        const current = snapshotRef.current;
+        if (!current || document.hidden) {
+          await pause();
+          continue;
         }
-      } catch {
-        // transient network error — next tick retries
+        const startedA = Date.now();
+        try {
+          const { snapshot: next, agentLastSeenA } = await fetchChanges(
+            roomId,
+            current.version,
+            LONG_POLL_WAIT_SECONDS,
+            controller.signal
+          );
+          if (agentLastSeenA) setAgentSeenA(agentLastSeenA);
+          if (next) {
+            applySnapshot(next);
+          } else {
+            setLastSyncA(Date.now());
+            // Server without long-poll answers 304 at once — keep the old interval.
+            if (Date.now() - startedA < 1000) await pause();
+          }
+        } catch {
+          // transient network error (or unmount abort) — back off, then retry
+          await pause();
+        }
       }
-    }, POLL_INTERVAL_MS);
-    return () => window.clearInterval(timer);
+    })();
+    return () => controller.abort();
   }, [roomId, applySnapshot]);
 
   const handleAddAnnotation = useCallback(
