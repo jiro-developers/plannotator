@@ -5,6 +5,7 @@
  *   POST   /api/rooms                                  create a room from {plan, title?}
  *   GET    /api/rooms/:id                              full snapshot
  *   GET    /api/rooms/:id/changes?since=<version>      304 when unchanged, snapshot otherwise
+ *                                     [&wait=<sec>]   long-poll: hold up to <sec> (max 30) for a change
  *   PUT    /api/rooms/:id/plan                         {plan, note?, author?} → new plan version
  *   POST   /api/rooms/:id/annotations                  add an annotation (client-generated id)
  *   POST   /api/rooms/:id/annotations/:aid/replies     {author, text}
@@ -202,6 +203,43 @@ async function withRoomLock<T>(id: string, fn: () => Promise<T>): Promise<T> {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Long-poll wake-ups — `/changes?wait=N` parks the request here until a write
+// to the room lands (same single-process assumption as the locks above;
+// scale-out needs a shared pub/sub such as Postgres LISTEN/NOTIFY).
+// ---------------------------------------------------------------------------
+
+/** Upper bound for `?wait=` — stays under the target's idle timeout. */
+export const MAX_CHANGES_WAIT_SECONDS = 30;
+
+const roomWaiters = new Map<string, Set<() => void>>();
+
+async function putAndWake(store: RoomStore, id: string, doc: RoomDoc): Promise<void> {
+  await store.put(id, doc);
+  const waiters = roomWaiters.get(id);
+  if (!waiters) return;
+  roomWaiters.delete(id);
+  for (const wake of waiters) wake();
+}
+
+/** Resolves on the next write to the room, after `ms`, or when `signal` aborts. */
+function waitForRoomWrite(id: string, ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    const waiters = roomWaiters.get(id) ?? new Set<() => void>();
+    roomWaiters.set(id, waiters);
+    const done = () => {
+      clearTimeout(timer);
+      signal.removeEventListener('abort', done);
+      waiters.delete(done);
+      if (waiters.size === 0 && roomWaiters.get(id) === waiters) roomWaiters.delete(id);
+      resolve();
+    };
+    const timer = setTimeout(done, ms);
+    signal.addEventListener('abort', done);
+    waiters.add(done);
+  });
+}
+
 async function loadRoom(store: RoomStore, id: string): Promise<RoomDoc> {
   const doc = await store.get(id);
   if (!doc) {
@@ -396,7 +434,7 @@ export async function handleRoomRequest(
         annotations: [],
         changelog: [{ version: 1, planVersion: 1, note: 'Room created', author, createdA: now }],
       };
-      await store.put(id, doc);
+      await putAndWake(store, id, doc);
       const base = options.publicBaseUrl ?? url.origin;
       return json({ id, url: `${base}/r/${id}`, version: doc.version }, 201);
     }
@@ -421,7 +459,7 @@ export async function handleRoomRequest(
             doc.signals.commitRequestedA = Date.now();
             if (actorName) doc.signals.commitRequestedBy = actorName;
             touch(doc);
-            await store.put(roomId, doc);
+            await putAndWake(store, roomId, doc);
             return json({ signals: doc.signals, version: doc.version });
           });
         }
@@ -436,7 +474,7 @@ export async function handleRoomRequest(
             delete doc.signals.commitRequestedBy;
             doc.signals.lastCommittedPlanVersion = doc.planVersion;
             touch(doc);
-            await store.put(roomId, doc);
+            await putAndWake(store, roomId, doc);
             return json({ signals: doc.signals, version: doc.version });
           });
         }
@@ -466,7 +504,7 @@ export async function handleRoomRequest(
               doc.acks.push({ key, name, planVersion: doc.planVersion, createdA: Date.now() });
             }
             touch(doc);
-            await store.put(roomId, doc);
+            await putAndWake(store, roomId, doc);
             return json({ acks: doc.acks, version: doc.version });
           });
         }
@@ -479,7 +517,7 @@ export async function handleRoomRequest(
             if (doc.acks?.some((a) => a.key === key)) {
               doc.acks = doc.acks.filter((a) => a.key !== key);
               touch(doc);
-              await store.put(roomId, doc);
+              await putAndWake(store, roomId, doc);
             }
             return json({ acks: doc.acks ?? [], version: doc.version });
           });
@@ -499,14 +537,36 @@ export async function handleRoomRequest(
       }
 
       if (request.method === 'GET' && subPath === '/changes') {
-        const doc = await loadRoom(store, roomId);
+        let doc = await loadRoom(store, roomId);
         // Agent heartbeat: record the poll time without bumping `version`
         // (a version bump would make the agent see its own poll as a change).
+        // Taken under the lock and written without waking waiters, so it
+        // neither clobbers a concurrent mutation nor ends other long-polls.
         if (actor?.name === 'agent') {
-          doc.agentLastSeenA = Date.now();
-          await store.put(roomId, doc);
+          doc = await withRoomLock(roomId, async () => {
+            const fresh = await loadRoom(store, roomId);
+            fresh.agentLastSeenA = Date.now();
+            await store.put(roomId, fresh);
+            return fresh;
+          });
         }
         const since = Number.parseInt(url.searchParams.get('since') ?? '0', 10);
+        // Long-poll: with `wait=N` (seconds), hold an unchanged response until
+        // the room is written or N elapses, so agents react without a tight loop.
+        const waitSeconds = Math.min(
+          Math.max(Number.parseInt(url.searchParams.get('wait') ?? '0', 10) || 0, 0),
+          MAX_CHANGES_WAIT_SECONDS
+        );
+        const deadline = Date.now() + waitSeconds * 1000;
+        while (
+          Number.isFinite(since) &&
+          since >= doc.version &&
+          Date.now() < deadline &&
+          !request.signal.aborted
+        ) {
+          await waitForRoomWrite(roomId, deadline - Date.now(), request.signal);
+          doc = await loadRoom(store, roomId);
+        }
         const heartbeatHeaders: Record<string, string> = doc.agentLastSeenA
           ? { ...cors, 'X-Agent-Last-Seen': String(doc.agentLastSeenA) }
           : cors;
@@ -537,7 +597,7 @@ export async function handleRoomRequest(
             author,
             createdA: doc.updatedA,
           });
-          await store.put(roomId, doc);
+          await putAndWake(store, roomId, doc);
           return json({ planVersion: doc.planVersion, version: doc.version });
         });
       }
@@ -560,7 +620,7 @@ export async function handleRoomRequest(
           };
           doc.annotations.push(annotation);
           touch(doc);
-          await store.put(roomId, doc);
+          await putAndWake(store, roomId, doc);
           return json({ annotation, version: doc.version }, 201);
         });
       }
@@ -579,7 +639,7 @@ export async function handleRoomRequest(
             const annotation = findAnnotation(doc, annotationId);
             annotation.replies.push({ author, text, createdA: Date.now() });
             touch(doc);
-            await store.put(roomId, doc);
+            await putAndWake(store, roomId, doc);
             return json({ annotation, version: doc.version }, 201);
           });
         }
@@ -597,7 +657,7 @@ export async function handleRoomRequest(
               annotation.votes.push(author);
             }
             touch(doc);
-            await store.put(roomId, doc);
+            await putAndWake(store, roomId, doc);
             return json({ votes: annotation.votes, version: doc.version });
           });
         }
@@ -625,7 +685,7 @@ export async function handleRoomRequest(
               annotation.status = status as RoomAnnotationStatus;
             }
             touch(doc);
-            await store.put(roomId, doc);
+            await putAndWake(store, roomId, doc);
             return json({ annotation, version: doc.version });
           });
         }
@@ -641,7 +701,7 @@ export async function handleRoomRequest(
             }
             doc.annotations = doc.annotations.filter((a) => a.id !== annotationId);
             touch(doc);
-            await store.put(roomId, doc);
+            await putAndWake(store, roomId, doc);
             return json({ version: doc.version });
           });
         }
