@@ -125,6 +125,10 @@ interface ViewerProps {
    *  comment, attachments, checkbox toggles). Existing annotations still
    *  render and remain selectable. Default false — today's behavior. */
   readOnly?: boolean;
+  /** Fires when an annotation draft (selection toolbar, comment popover,
+   *  quick-label picker) opens or closes, so hosts can hold back changes that
+   *  would remount the viewer and discard it. */
+  onComposingChange?: (composing: boolean) => void;
 }
 
 export interface ViewerHandle {
@@ -208,6 +212,7 @@ export const Viewer = forwardRef<ViewerHandle, ViewerProps>(({
   onAskAI,
   allowImages = true,
   readOnly = false,
+  onComposingChange,
 }, ref) => {
   const [copied, setCopied] = useState(false);
   const [lightbox, setLightbox] = useState<{ src: string; alt: string } | null>(null);
@@ -334,6 +339,15 @@ export const Viewer = forwardRef<ViewerHandle, ViewerProps>(({
       });
     }
   }, [blocks]);
+
+  const isComposing = Boolean(
+    toolbarState || hookCommentPopover || viewerCommentPopover || hookQuickLabelPicker || codeBlockQuickLabelPicker
+  );
+  const onComposingChangeRef = useRef(onComposingChange);
+  useEffect(() => { onComposingChangeRef.current = onComposingChange; }, [onComposingChange]);
+  useEffect(() => { onComposingChangeRef.current?.(isComposing); }, [isComposing]);
+  // A remount mid-draft would otherwise leave the host stuck in "composing".
+  useEffect(() => () => onComposingChangeRef.current?.(false), []);
 
   const { hoverTarget } = usePinpoint({
     containerRef,

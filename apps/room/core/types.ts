@@ -55,6 +55,12 @@ export interface RoomAnnotation {
   endMeta?: RoomAnnotationTextMeta;
   isQuickLabel?: boolean;
   quickLabelTip?: string;
+  /**
+   * planVersion the author was looking at. Can trail the room's planVersion
+   * when the UI held back an update while the comment was being written —
+   * fetch /plan-versions/:v for the text it was anchored to.
+   */
+  planVersion?: number;
   // Server-managed
   seq: number;
   votes: string[];

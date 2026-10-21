@@ -82,6 +82,11 @@ export function RoomApp({ roomId }: { roomId: string }) {
   const snapshotRef = useRef<RoomSnapshot | null>(null);
   /** Annotation ids whose highlight is currently painted in the viewer DOM. */
   const paintedIdsRef = useRef<Set<string>>(new Set());
+  /** 코멘트 입력창·선택 툴바가 열려 있으면 true — 본문 갱신을 이 동안 미룬다. */
+  const isComposingRef = useRef(false);
+  const [isComposing, setIsComposing] = useState(false);
+  /** 작성 중이라 미뤄 둔 본문 갱신이 있을 때, 화면에 계속 보여 줄 이전 본문. */
+  const [heldPlan, setHeldPlan] = useState<{ plan: string; planVersion: number } | null>(null);
 
   const [identity, setIdentity] = useState(() => getIdentity());
   const [showHistory, setShowHistory] = useState(false);
@@ -136,8 +141,19 @@ export function RoomApp({ roomId }: { roomId: string }) {
       });
   }, [identity]);
 
-  const plan = snapshot?.plan ?? '';
-  const planVersion = snapshot?.planVersion ?? 0;
+  const handleComposingChange = useCallback((composing: boolean) => {
+    isComposingRef.current = composing;
+    setIsComposing(composing);
+  }, []);
+
+  // 작성이 끝나면 미뤄 둔 본문 갱신을 반영한다
+  useEffect(() => {
+    if (!isComposing) setHeldPlan(null);
+  }, [isComposing]);
+
+  // 화면에 보이는 본문 — 작성 중 미뤄 둔 갱신이 있으면 이전 본문
+  const plan = heldPlan?.plan ?? snapshot?.plan ?? '';
+  const planVersion = heldPlan?.planVersion ?? snapshot?.planVersion ?? 0;
   /** 'html'이면 본문을 sandbox iframe으로 렌더하고 global comment만 지원한다. */
   const isHtml = snapshot?.renderAs === 'html';
 
@@ -170,6 +186,10 @@ export function RoomApp({ roomId }: { roomId: string }) {
 
   /** Merge a fresh server snapshot: clear highlights of removed annotations. */
   const applySnapshot = useCallback((next: RoomSnapshot) => {
+    const current = snapshotRef.current;
+    if (current && isComposingRef.current && next.planVersion !== current.planVersion) {
+      setHeldPlan((held) => held ?? { plan: current.plan, planVersion: current.planVersion });
+    }
     const nextIds = new Set(next.annotations.map((a) => a.id));
     for (const id of paintedIdsRef.current) {
       if (!nextIds.has(id)) {
@@ -336,12 +356,12 @@ export function RoomApp({ roomId }: { roomId: string }) {
               ...current,
               annotations: [
                 ...current.annotations,
-                toOptimisticRoomAnnotation(annotation, identity, current.annotations.length + 1),
+                toOptimisticRoomAnnotation(annotation, identity, current.annotations.length + 1, planVersion),
               ],
             }
           : current
       );
-      postAnnotation(roomId, toWireInput(annotation, identity))
+      postAnnotation(roomId, toWireInput(annotation, identity, planVersion))
         .then(() => refresh())
         .catch((e: unknown) => {
           toast.error(`코멘트 저장 실패: ${e instanceof Error ? e.message : String(e)}`);
@@ -354,7 +374,7 @@ export function RoomApp({ roomId }: { roomId: string }) {
           );
         });
     },
-    [roomId, identity, refresh]
+    [roomId, identity, refresh, planVersion]
   );
 
   const handleDeleteAnnotation = useCallback(
@@ -685,6 +705,7 @@ export function RoomApp({ roomId }: { roomId: string }) {
                   gridEnabled
                   allowImages={false}
                   disableCodePathValidation
+                  onComposingChange={handleComposingChange}
                 />
               </div>
             </OverlayScrollArea>
@@ -782,6 +803,20 @@ export function RoomApp({ roomId }: { roomId: string }) {
               </button>
             </div>
           </div>
+        </div>
+      )}
+      {heldPlan && snapshot.planVersion !== heldPlan.planVersion && (
+        <div className="fixed bottom-4 left-1/2 z-[70] flex -translate-x-1/2 items-center gap-3 rounded-lg border border-amber-500/40 bg-background px-4 py-2 text-xs shadow-lg">
+          <span>
+            문서가 v{snapshot.planVersion}로 갱신됐어요. 작성 중인 코멘트를 마치면 반영돼요.
+          </span>
+          <button
+            type="button"
+            onClick={() => setHeldPlan(null)}
+            className="rounded-md border border-border/60 px-2 py-1 text-muted-foreground hover:bg-muted"
+          >
+            지금 반영 (작성 중 내용은 사라져요)
+          </button>
         </div>
       )}
       <EmojiAutocomplete />

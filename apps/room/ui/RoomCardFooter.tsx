@@ -28,7 +28,13 @@ interface RoomCardFooterProps {
  * Collaboration footer rendered inside each AnnotationPanel card:
  * vote toggle, agent/owner status badge, replies thread, reply input.
  */
-export function RoomCardFooter({ annotation, identity, anchorLost, onVote, onReply }: RoomCardFooterProps) {
+export function RoomCardFooter({
+  annotation,
+  identity,
+  anchorLost,
+  onVote,
+  onReply,
+}: RoomCardFooterProps) {
   const [replyText, setReplyText] = useState('');
   const [sending, setSending] = useState(false);
   const [showReplyInput, setShowReplyInput] = useState(false);
@@ -54,6 +60,7 @@ export function RoomCardFooter({ annotation, identity, anchorLost, onVote, onRep
       {anchorLost && (
         <div className="rounded bg-amber-500/10 px-2 py-1 text-[11px] text-amber-600 dark:text-amber-400">
           문서가 갱신되어 본문에서 위치를 표시할 수 없어요 (위의 인용 원문 참고)
+          {annotation.planVersion != null && ` · v${annotation.planVersion} 문서에 단 코멘트`}
         </div>
       )}
       <div className="flex items-center gap-2">
