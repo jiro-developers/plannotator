@@ -10,7 +10,7 @@ import { extractFrontmatter, parseMarkdownToBlocks } from '@plannotator/ui/utils
 import { getIdentity, isCurrentUser, isIdentityEditable, setCustomIdentity } from '@plannotator/ui/utils/identity';
 import { getEditorMode, saveEditorMode } from '@plannotator/ui/utils/editorMode';
 import { AnnotationType, type Annotation, type EditorMode } from '@plannotator/ui/types';
-import type { RoomSnapshot } from '../core/types';
+import type { RoomAnnotation, RoomSnapshot } from '../core/types';
 import {
   deleteAnnotation,
   fetchAckSummaries,
@@ -82,6 +82,8 @@ export function RoomApp({ roomId }: { roomId: string }) {
   const snapshotRef = useRef<RoomSnapshot | null>(null);
   /** Annotation ids whose highlight is currently painted in the viewer DOM. */
   const paintedIdsRef = useRef<Set<string>>(new Set());
+  /** 저장 응답 전인 내 코멘트 — 그 사이 도착한 서버 스냅샷에는 아직 없다. */
+  const pendingAnnotationsRef = useRef<Map<string, RoomAnnotation>>(new Map());
   /** 코멘트 입력창·선택 툴바가 열려 있으면 true — 본문 갱신을 이 동안 미룬다. */
   const isComposingRef = useRef(false);
   const [isComposing, setIsComposing] = useState(false);
@@ -154,6 +156,7 @@ export function RoomApp({ roomId }: { roomId: string }) {
   // 화면에 보이는 본문 — 작성 중 미뤄 둔 갱신이 있으면 이전 본문
   const plan = heldPlan?.plan ?? snapshot?.plan ?? '';
   const planVersion = heldPlan?.planVersion ?? snapshot?.planVersion ?? 0;
+  const isLoaded = snapshot !== null;
   /** 'html'이면 본문을 sandbox iframe으로 렌더하고 global comment만 지원한다. */
   const isHtml = snapshot?.renderAs === 'html';
 
@@ -187,17 +190,23 @@ export function RoomApp({ roomId }: { roomId: string }) {
   /** Merge a fresh server snapshot: clear highlights of removed annotations. */
   const applySnapshot = useCallback((next: RoomSnapshot) => {
     const current = snapshotRef.current;
+    // 늦게 도착한 옛 응답이 더 최신 상태를 덮지 않게 한다
+    if (current && next.version < current.version) return;
     if (current && isComposingRef.current && next.planVersion !== current.planVersion) {
       setHeldPlan((held) => held ?? { plan: current.plan, planVersion: current.planVersion });
     }
-    const nextIds = new Set(next.annotations.map((a) => a.id));
+    const serverIds = new Set(next.annotations.map((a) => a.id));
+    const pending = [...pendingAnnotationsRef.current.values()].filter((a) => !serverIds.has(a.id));
+    const merged = pending.length > 0 ? { ...next, annotations: [...next.annotations, ...pending] } : next;
+    const mergedIds = new Set(merged.annotations.map((a) => a.id));
     for (const id of paintedIdsRef.current) {
-      if (!nextIds.has(id)) {
+      if (!mergedIds.has(id)) {
         viewerRef.current?.removeHighlight(id);
         paintedIdsRef.current.delete(id);
       }
     }
-    setSnapshot(next);
+    snapshotRef.current = merged;
+    setSnapshot(merged);
     setLastSyncA(Date.now());
   }, []);
 
@@ -213,6 +222,7 @@ export function RoomApp({ roomId }: { roomId: string }) {
   useEffect(() => {
     fetchRoom(roomId)
       .then((doc) => {
+        snapshotRef.current = doc;
         setSnapshot(doc);
         setLastSyncA(Date.now());
         if (doc.agentLastSeenA) setAgentSeenA(doc.agentLastSeenA);
@@ -312,6 +322,7 @@ export function RoomApp({ roomId }: { roomId: string }) {
   // Long-poll for changes: the server holds each request until the room is
   // written or LONG_POLL_WAIT_SECONDS pass, so the next request goes out right away.
   useEffect(() => {
+    if (!isLoaded) return;
     const controller = new AbortController();
     const pause = () => new Promise((resolve) => window.setTimeout(resolve, POLL_INTERVAL_MS));
     void (async () => {
@@ -344,27 +355,30 @@ export function RoomApp({ roomId }: { roomId: string }) {
       }
     })();
     return () => controller.abort();
-  }, [roomId, applySnapshot]);
+  }, [roomId, applySnapshot, isLoaded]);
 
   const handleAddAnnotation = useCallback(
     (annotation: Annotation) => {
       // The viewer already painted the local highlight.
       paintedIdsRef.current.add(annotation.id);
+      const optimistic = toOptimisticRoomAnnotation(
+        annotation,
+        identity,
+        (snapshotRef.current?.annotations.length ?? 0) + 1,
+        planVersion
+      );
+      pendingAnnotationsRef.current.set(annotation.id, optimistic);
       setSnapshot((current) =>
-        current
-          ? {
-              ...current,
-              annotations: [
-                ...current.annotations,
-                toOptimisticRoomAnnotation(annotation, identity, current.annotations.length + 1, planVersion),
-              ],
-            }
-          : current
+        current ? { ...current, annotations: [...current.annotations, optimistic] } : current
       );
       postAnnotation(roomId, toWireInput(annotation, identity, planVersion))
         .then(() => refresh())
+        .then(() => {
+          pendingAnnotationsRef.current.delete(annotation.id);
+        })
         .catch((e: unknown) => {
           toast.error(`코멘트 저장 실패: ${e instanceof Error ? e.message : String(e)}`);
+          pendingAnnotationsRef.current.delete(annotation.id);
           paintedIdsRef.current.delete(annotation.id);
           viewerRef.current?.removeHighlight(annotation.id);
           setSnapshot((current) =>
