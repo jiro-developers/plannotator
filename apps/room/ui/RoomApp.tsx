@@ -9,8 +9,9 @@ import { ScrollViewportProvider } from '@plannotator/ui/hooks/useScrollViewport'
 import { extractFrontmatter, parseMarkdownToBlocks } from '@plannotator/ui/utils/parser';
 import { getIdentity, isCurrentUser, isIdentityEditable, setCustomIdentity } from '@plannotator/ui/utils/identity';
 import { getEditorMode, saveEditorMode } from '@plannotator/ui/utils/editorMode';
+import { PLAN_WIDTH_OPTIONS, type PlanWidth } from '@plannotator/ui/utils/uiPreferences';
 import { AnnotationType, type Annotation, type EditorMode } from '@plannotator/ui/types';
-import type { RoomSnapshot } from '../core/types';
+import type { RoomAnnotation, RoomSnapshot } from '../core/types';
 import {
   deleteAnnotation,
   fetchAckSummaries,
@@ -43,6 +44,41 @@ function loadWidth(key: string, fallback: number, min: number, max: number): num
   return Number.isFinite(saved) && saved > 0 ? clampWidth(saved, min, max) : fallback;
 }
 
+function loadPlanWidth(): PlanWidth {
+  const saved = localStorage.getItem('room.planWidth');
+  return PLAN_WIDTH_OPTIONS.find((option) => option.id === saved)?.id ?? 'default';
+}
+
+/**
+ * 본문이 바뀌어 원문을 못 찾는 코멘트용 — 원문의 앞부분이나 뒷부분 중 문서에
+ * 한 번만 남아 있는 가장 긴 조각을 찾는다. 너무 짧으면 엉뚱한 곳에 붙으므로 버린다.
+ */
+function findApproxAnchor(text: string, haystack: string): string | null {
+  const minLength = Math.max(8, Math.ceil(text.length * 0.4));
+  if (text.length <= minLength) return null;
+  const longest = (slice: (length: number) => string) => {
+    let low = minLength;
+    let high = text.length - 1;
+    let best = '';
+    while (low <= high) {
+      const mid = (low + high) >> 1;
+      const candidate = slice(mid);
+      if (haystack.includes(candidate)) {
+        best = candidate;
+        low = mid + 1;
+      } else {
+        high = mid - 1;
+      }
+    }
+    return best.trim();
+  };
+  const prefix = longest((length) => text.slice(0, length));
+  const suffix = longest((length) => text.slice(text.length - length));
+  const best = prefix.length >= suffix.length ? prefix : suffix;
+  if (best.length < minLength) return null;
+  return haystack.indexOf(best) === haystack.lastIndexOf(best) ? best : null;
+}
+
 function formatAgo(ts: number): string {
   const diff = Date.now() - ts;
   if (diff < 45_000) return '방금';
@@ -59,6 +95,10 @@ const LONG_POLL_WAIT_SECONDS = 25;
 /** Delay before re-anchoring highlights so the viewer DOM is fully rendered. */
 const REPAINT_DELAY_MS = 150;
 
+const PLAN_WIDTH_LABEL: Record<PlanWidth, string> = { compact: '좁게', default: '보통', wide: '넓게' };
+/** 본문 래퍼의 좌우 패딩(px-6) 합. */
+const VIEWER_GUTTER_PX = 48;
+
 const MODE_OPTION_LIST: Array<{ id: EditorMode; label: string }> = [
   { id: 'selection', label: 'Select' },
   { id: 'comment', label: 'Comment' },
@@ -71,6 +111,8 @@ export function RoomApp({ roomId }: { roomId: string }) {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [selectedAnnotationId, setSelectedAnnotationId] = useState<string | null>(null);
   const [viewport, setViewport] = useState<HTMLElement | null>(null);
+  const viewportRef = useRef<HTMLElement | null>(null);
+  viewportRef.current = viewport;
   const [lastSyncA, setLastSyncA] = useState<number | null>(null);
   /** 에이전트가 마지막으로 이 방을 폴링한 시각 (서버 하트비트). */
   const [agentSeenA, setAgentSeenA] = useState<number | null>(null);
@@ -82,6 +124,16 @@ export function RoomApp({ roomId }: { roomId: string }) {
   const snapshotRef = useRef<RoomSnapshot | null>(null);
   /** Annotation ids whose highlight is currently painted in the viewer DOM. */
   const paintedIdsRef = useRef<Set<string>>(new Set());
+  /** 저장 응답 전인 내 코멘트 — 그 사이 도착한 서버 스냅샷에는 아직 없다. */
+  const pendingAnnotationsRef = useRef<Map<string, RoomAnnotation>>(new Map());
+  /** 이번 칠하기에서 원문을 못 찾은 코멘트 (근사 위치 재시도용). */
+  const restoreMismatchesRef = useRef<Annotation[]>([]);
+  /** 코멘트 입력창·선택 툴바가 열려 있으면 true — 본문 갱신을 이 동안 미룬다. */
+  const isComposingRef = useRef(false);
+  const [isComposing, setIsComposing] = useState(false);
+  /** 작성 중이라 미뤄 둔 본문 갱신이 있을 때, 화면에 계속 보여 줄 이전 본문. */
+  const [heldPlan, setHeldPlan] = useState<{ plan: string; planVersion: number } | null>(null);
+  const [planWidth, setPlanWidth] = useState<PlanWidth>(loadPlanWidth);
 
   const [identity, setIdentity] = useState(() => getIdentity());
   const [showHistory, setShowHistory] = useState(false);
@@ -101,8 +153,11 @@ export function RoomApp({ roomId }: { roomId: string }) {
   panelWidthRef.current = panelWidth;
   /** Annotations that no longer anchor to the current plan text (document drift). */
   const [lostAnchorIds, setLostAnchorIds] = useState<ReadonlySet<string>>(new Set());
+  /** 그중 원문 일부로 비슷한 위치를 찾아 점선으로 표시한 코멘트. */
+  const [approxAnchorIds, setApproxAnchorIds] = useState<ReadonlySet<string>>(new Set());
 
   const handleRestoreMismatch = useCallback((annotation: Annotation) => {
+    restoreMismatchesRef.current.push(annotation);
     setLostAnchorIds((prev) => {
       if (prev.has(annotation.id)) return prev;
       const next = new Set(prev);
@@ -136,8 +191,20 @@ export function RoomApp({ roomId }: { roomId: string }) {
       });
   }, [identity]);
 
-  const plan = snapshot?.plan ?? '';
-  const planVersion = snapshot?.planVersion ?? 0;
+  const handleComposingChange = useCallback((composing: boolean) => {
+    isComposingRef.current = composing;
+    setIsComposing(composing);
+  }, []);
+
+  // 작성이 끝나면 미뤄 둔 본문 갱신을 반영한다
+  useEffect(() => {
+    if (!isComposing) setHeldPlan(null);
+  }, [isComposing]);
+
+  // 화면에 보이는 본문 — 작성 중 미뤄 둔 갱신이 있으면 이전 본문
+  const plan = heldPlan?.plan ?? snapshot?.plan ?? '';
+  const planVersion = heldPlan?.planVersion ?? snapshot?.planVersion ?? 0;
+  const isLoaded = snapshot !== null;
   /** 'html'이면 본문을 sandbox iframe으로 렌더하고 global comment만 지원한다. */
   const isHtml = snapshot?.renderAs === 'html';
 
@@ -148,6 +215,7 @@ export function RoomApp({ roomId }: { roomId: string }) {
   }, [plan, isHtml]);
 
   const blocks = useMemo(() => parseMarkdownToBlocks(content), [content]);
+  const planWidthPx = PLAN_WIDTH_OPTIONS.find((option) => option.id === planWidth)?.px ?? 1040;
 
   const uiAnnotations = useMemo(
     () => (snapshot?.annotations ?? []).map(toUiAnnotation),
@@ -170,14 +238,24 @@ export function RoomApp({ roomId }: { roomId: string }) {
 
   /** Merge a fresh server snapshot: clear highlights of removed annotations. */
   const applySnapshot = useCallback((next: RoomSnapshot) => {
-    const nextIds = new Set(next.annotations.map((a) => a.id));
+    const current = snapshotRef.current;
+    // 늦게 도착한 옛 응답이 더 최신 상태를 덮지 않게 한다
+    if (current && next.version < current.version) return;
+    if (current && isComposingRef.current && next.planVersion !== current.planVersion) {
+      setHeldPlan((held) => held ?? { plan: current.plan, planVersion: current.planVersion });
+    }
+    const serverIds = new Set(next.annotations.map((a) => a.id));
+    const pending = [...pendingAnnotationsRef.current.values()].filter((a) => !serverIds.has(a.id));
+    const merged = pending.length > 0 ? { ...next, annotations: [...next.annotations, ...pending] } : next;
+    const mergedIds = new Set(merged.annotations.map((a) => a.id));
     for (const id of paintedIdsRef.current) {
-      if (!nextIds.has(id)) {
+      if (!mergedIds.has(id)) {
         viewerRef.current?.removeHighlight(id);
         paintedIdsRef.current.delete(id);
       }
     }
-    setSnapshot(next);
+    snapshotRef.current = merged;
+    setSnapshot(merged);
     setLastSyncA(Date.now());
   }, []);
 
@@ -193,6 +271,7 @@ export function RoomApp({ roomId }: { roomId: string }) {
   useEffect(() => {
     fetchRoom(roomId)
       .then((doc) => {
+        snapshotRef.current = doc;
         setSnapshot(doc);
         setLastSyncA(Date.now());
         if (doc.agentLastSeenA) setAgentSeenA(doc.agentLastSeenA);
@@ -211,8 +290,33 @@ export function RoomApp({ roomId }: { roomId: string }) {
     );
     if (pending.length === 0) return;
     window.setTimeout(() => {
-      viewerRef.current?.applySharedAnnotations(pending.map(toUiAnnotation));
+      const viewer = viewerRef.current;
+      if (!viewer) return;
+      restoreMismatchesRef.current = [];
+      viewer.applySharedAnnotations(pending.map(toUiAnnotation));
       for (const a of pending) paintedIdsRef.current.add(a.id);
+
+      const lost = restoreMismatchesRef.current;
+      restoreMismatchesRef.current = [];
+      const root = viewportRef.current;
+      if (lost.length === 0 || !root) return;
+      const docText = root.textContent ?? '';
+      const approxIds: string[] = [];
+      for (const annotation of lost) {
+        const fragment = findApproxAnchor(annotation.originalText, docText);
+        if (!fragment) continue;
+        viewer.applySharedAnnotations([
+          { ...annotation, originalText: fragment, startMeta: undefined, endMeta: undefined },
+        ]);
+        const marks = root.querySelectorAll(`[data-bind-id="${annotation.id}"]`);
+        if (marks.length === 0) continue;
+        marks.forEach((mark) => mark.classList.add('approx'));
+        approxIds.push(annotation.id);
+      }
+      restoreMismatchesRef.current = [];
+      if (approxIds.length > 0) {
+        setApproxAnchorIds((prev) => new Set([...prev, ...approxIds]));
+      }
     }, REPAINT_DELAY_MS);
   }, []);
 
@@ -223,6 +327,7 @@ export function RoomApp({ roomId }: { roomId: string }) {
     paintedIdsRef.current = new Set();
     // A new plan version may re-anchor previously lost annotations — retry all.
     setLostAnchorIds(new Set());
+    setApproxAnchorIds(new Set());
     paintPending();
   }, [planVersion, paintPending]);
 
@@ -292,6 +397,7 @@ export function RoomApp({ roomId }: { roomId: string }) {
   // Long-poll for changes: the server holds each request until the room is
   // written or LONG_POLL_WAIT_SECONDS pass, so the next request goes out right away.
   useEffect(() => {
+    if (!isLoaded) return;
     const controller = new AbortController();
     const pause = () => new Promise((resolve) => window.setTimeout(resolve, POLL_INTERVAL_MS));
     void (async () => {
@@ -324,27 +430,30 @@ export function RoomApp({ roomId }: { roomId: string }) {
       }
     })();
     return () => controller.abort();
-  }, [roomId, applySnapshot]);
+  }, [roomId, applySnapshot, isLoaded]);
 
   const handleAddAnnotation = useCallback(
     (annotation: Annotation) => {
       // The viewer already painted the local highlight.
       paintedIdsRef.current.add(annotation.id);
-      setSnapshot((current) =>
-        current
-          ? {
-              ...current,
-              annotations: [
-                ...current.annotations,
-                toOptimisticRoomAnnotation(annotation, identity, current.annotations.length + 1),
-              ],
-            }
-          : current
+      const optimistic = toOptimisticRoomAnnotation(
+        annotation,
+        identity,
+        (snapshotRef.current?.annotations.length ?? 0) + 1,
+        planVersion
       );
-      postAnnotation(roomId, toWireInput(annotation, identity))
+      pendingAnnotationsRef.current.set(annotation.id, optimistic);
+      setSnapshot((current) =>
+        current ? { ...current, annotations: [...current.annotations, optimistic] } : current
+      );
+      postAnnotation(roomId, toWireInput(annotation, identity, planVersion))
         .then(() => refresh())
+        .then(() => {
+          pendingAnnotationsRef.current.delete(annotation.id);
+        })
         .catch((e: unknown) => {
           toast.error(`코멘트 저장 실패: ${e instanceof Error ? e.message : String(e)}`);
+          pendingAnnotationsRef.current.delete(annotation.id);
           paintedIdsRef.current.delete(annotation.id);
           viewerRef.current?.removeHighlight(annotation.id);
           setSnapshot((current) =>
@@ -354,7 +463,7 @@ export function RoomApp({ roomId }: { roomId: string }) {
           );
         });
     },
-    [roomId, identity, refresh]
+    [roomId, identity, refresh, planVersion]
   );
 
   const handleDeleteAnnotation = useCallback(
@@ -540,6 +649,29 @@ export function RoomApp({ roomId }: { roomId: string }) {
               ))}
             </div>
           )}
+          {!isHtml && (
+            <Tooltip className="hidden lg:block" content="본문 폭 — 이 브라우저에 기억돼요">
+              <div className="flex items-center rounded-lg border border-border/60 p-0.5">
+                {PLAN_WIDTH_OPTIONS.map((option) => (
+                  <button
+                    key={option.id}
+                    type="button"
+                    onClick={() => {
+                      setPlanWidth(option.id);
+                      localStorage.setItem('room.planWidth', option.id);
+                    }}
+                    className={`rounded-md px-2 py-1 text-xs transition-colors ${
+                      planWidth === option.id
+                        ? 'bg-muted text-foreground'
+                        : 'text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    {PLAN_WIDTH_LABEL[option.id]}
+                  </button>
+                ))}
+              </div>
+            </Tooltip>
+          )}
           <div className="ml-auto flex items-center gap-2 text-[11px] text-muted-foreground">
             <AckControl
               acks={snapshot.acks ?? []}
@@ -666,7 +798,7 @@ export function RoomApp({ roomId }: { roomId: string }) {
               className="bg-grid min-w-0 flex-1"
               onViewportReady={setViewport}
             >
-              <div className="mx-auto max-w-4xl px-6 py-8">
+              <div className="mx-auto px-6 py-8" style={{ maxWidth: planWidthPx + VIEWER_GUTTER_PX }}>
                 <Viewer
                   key={planVersion}
                   ref={viewerRef}
@@ -685,6 +817,8 @@ export function RoomApp({ roomId }: { roomId: string }) {
                   gridEnabled
                   allowImages={false}
                   disableCodePathValidation
+                  maxWidth={planWidthPx}
+                  onComposingChange={handleComposingChange}
                 />
               </div>
             </OverlayScrollArea>
@@ -712,6 +846,7 @@ export function RoomApp({ roomId }: { roomId: string }) {
                   annotation={roomAnnotation}
                   identity={identity}
                   anchorLost={lostAnchorIds.has(roomAnnotation.id)}
+                  anchorApprox={approxAnchorIds.has(roomAnnotation.id)}
                   onVote={handleVote}
                   onReply={handleReply}
                 />
@@ -782,6 +917,20 @@ export function RoomApp({ roomId }: { roomId: string }) {
               </button>
             </div>
           </div>
+        </div>
+      )}
+      {heldPlan && snapshot.planVersion !== heldPlan.planVersion && (
+        <div className="fixed bottom-4 left-1/2 z-[70] flex -translate-x-1/2 items-center gap-3 rounded-lg border border-amber-500/40 bg-background px-4 py-2 text-xs shadow-lg">
+          <span>
+            문서가 v{snapshot.planVersion}로 갱신됐어요. 작성 중인 코멘트를 마치면 반영돼요.
+          </span>
+          <button
+            type="button"
+            onClick={() => setHeldPlan(null)}
+            className="rounded-md border border-border/60 px-2 py-1 text-muted-foreground hover:bg-muted"
+          >
+            지금 반영 (작성 중 내용은 사라져요)
+          </button>
         </div>
       )}
       <EmojiAutocomplete />

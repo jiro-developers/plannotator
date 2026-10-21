@@ -162,6 +162,7 @@ function parseAnnotationInput(body: unknown): RoomAnnotationInput {
     endMeta: parseTextMeta(body.endMeta),
     isQuickLabel: typeof body.isQuickLabel === 'boolean' ? body.isQuickLabel : undefined,
     quickLabelTip: optionalString(body.quickLabelTip, 'quickLabelTip', 2000),
+    planVersion: optionalNumber(body.planVersion),
   };
 }
 
@@ -611,8 +612,16 @@ export async function handleRoomRequest(
             throw new RoomError('Annotation id already exists', 409);
           }
           doc.seqCounter += 1;
+          const seenPlanVersion = input.planVersion;
           const annotation: RoomAnnotation = {
             ...input,
+            planVersion:
+              seenPlanVersion !== undefined &&
+              Number.isInteger(seenPlanVersion) &&
+              seenPlanVersion >= 1 &&
+              seenPlanVersion <= doc.planVersion
+                ? seenPlanVersion
+                : doc.planVersion,
             seq: doc.seqCounter,
             votes: [],
             status: 'open',

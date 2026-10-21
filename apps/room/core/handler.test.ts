@@ -56,3 +56,28 @@ describe('GET /changes long-poll', () => {
     expect(Date.now() - started).toBeLessThan(2_000);
   });
 });
+
+describe('POST /annotations planVersion', () => {
+  const put = (path: string, body: unknown) =>
+    call(path, { method: 'PUT', body: JSON.stringify(body), headers: { 'Content-Type': 'application/json' } });
+  const comment = (id: string, planVersion?: unknown) => ({
+    id, type: 'COMMENT', originalText: 'body', text: 'hi', author: 'teammate', planVersion,
+  });
+
+  test('keeps the older plan version the author was looking at', async () => {
+    const { id } = await createRoom();
+    await put(`/api/rooms/${id}/plan`, { plan: '# Plan\n\nbody v2', author: 'agent' });
+    const { annotation } = await (await post(`/api/rooms/${id}/annotations`, comment('a1', 1))).json();
+    expect(annotation.planVersion).toBe(1);
+  });
+
+  test('falls back to the current plan version when missing or out of range', async () => {
+    const { id } = await createRoom();
+    const missing = await (await post(`/api/rooms/${id}/annotations`, comment('a1'))).json();
+    const ahead = await (await post(`/api/rooms/${id}/annotations`, comment('a2', 99))).json();
+    const fractional = await (await post(`/api/rooms/${id}/annotations`, comment('a3', 0.5))).json();
+    expect(missing.annotation.planVersion).toBe(1);
+    expect(ahead.annotation.planVersion).toBe(1);
+    expect(fractional.annotation.planVersion).toBe(1);
+  });
+});

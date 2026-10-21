@@ -186,7 +186,7 @@ export function toUiAnnotation(a: RoomAnnotation): Annotation {
   };
 }
 
-export function toWireInput(a: Annotation, fallbackAuthor: string): RoomAnnotationInput {
+export function toWireInput(a: Annotation, fallbackAuthor: string, planVersion?: number): RoomAnnotationInput {
   return {
     id: a.id,
     type: ENUM_TO_TYPE[a.type],
@@ -201,6 +201,7 @@ export function toWireInput(a: Annotation, fallbackAuthor: string): RoomAnnotati
     endMeta: a.endMeta,
     isQuickLabel: a.isQuickLabel,
     quickLabelTip: a.quickLabelTip,
+    planVersion,
   };
 }
 
@@ -208,10 +209,11 @@ export function toWireInput(a: Annotation, fallbackAuthor: string): RoomAnnotati
 export function toOptimisticRoomAnnotation(
   a: Annotation,
   fallbackAuthor: string,
-  seq: number
+  seq: number,
+  planVersion?: number
 ): RoomAnnotation {
   return {
-    ...toWireInput(a, fallbackAuthor),
+    ...toWireInput(a, fallbackAuthor, planVersion),
     seq,
     votes: [],
     status: 'open',

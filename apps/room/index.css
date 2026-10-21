@@ -19,3 +19,10 @@ span.text-\[10px\].text-muted-foreground\/50 {
   font-size: 11px;
   font-weight: 600;
 }
+
+/* 본문이 바뀌어 원문 일부로만 찾은 코멘트 위치 — 정확한 위치와 구분되게 점선만 */
+.annotation-highlight.comment.approx,
+.light .annotation-highlight.comment.approx {
+  background: transparent;
+  border-bottom: 2px dashed var(--accent);
+}
