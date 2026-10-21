@@ -27,9 +27,9 @@ export const BlockRenderer: React.FC<{
       const Tag = `h${block.level || 1}` as React.ElementType;
       const styles = {
         1: 'text-2xl font-bold mb-4 mt-6 first:mt-0 tracking-tight',
-        2: 'text-xl font-semibold mb-3 mt-8 text-foreground/90',
-        3: 'text-base font-semibold mb-2 mt-6 text-foreground/80',
-      }[block.level || 1] || 'text-base font-semibold mb-2 mt-4';
+        2: 'text-[20px] font-semibold text-foreground tracking-[-0.01em] mb-3.5 mt-14 pt-5 border-t border-border/60 first:mt-2 first:pt-0 first:border-t-0',
+        3: 'text-[17px] font-semibold text-foreground tracking-[-0.005em] mb-1.5 mt-8',
+      }[block.level || 1] || 'text-[15px] font-semibold text-foreground/60 mb-1 mt-5';
       return (
         <Tag
           id={headingAnchorId}

@@ -454,10 +454,10 @@ const DiffBlockRenderer: React.FC<DiffBlockRendererProps> = ({
 
 const HEADING_STYLE_BY_LEVEL: Record<number, string> = {
   1: "text-2xl font-bold mb-4 mt-6 first:mt-0 tracking-tight",
-  2: "text-xl font-semibold mb-3 mt-8 text-foreground/90",
-  3: "text-base font-semibold mb-2 mt-6 text-foreground/80",
+  2: "text-[20px] font-semibold text-foreground tracking-[-0.01em] mb-3.5 mt-14 pt-5 border-t border-border/60 first:mt-2 first:pt-0 first:border-t-0",
+  3: "text-[17px] font-semibold text-foreground tracking-[-0.005em] mb-1.5 mt-8",
 };
-const HEADING_STYLE_FALLBACK = "text-base font-semibold mb-2 mt-4";
+const HEADING_STYLE_FALLBACK = "text-[15px] font-semibold text-foreground/60 mb-1 mt-5";
 const headingStyleFor = (level: number): string =>
   HEADING_STYLE_BY_LEVEL[level] || HEADING_STYLE_FALLBACK;
 
