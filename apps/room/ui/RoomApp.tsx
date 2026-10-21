@@ -9,6 +9,7 @@ import { ScrollViewportProvider } from '@plannotator/ui/hooks/useScrollViewport'
 import { extractFrontmatter, parseMarkdownToBlocks } from '@plannotator/ui/utils/parser';
 import { getIdentity, isCurrentUser, isIdentityEditable, setCustomIdentity } from '@plannotator/ui/utils/identity';
 import { getEditorMode, saveEditorMode } from '@plannotator/ui/utils/editorMode';
+import { PLAN_WIDTH_OPTIONS, type PlanWidth } from '@plannotator/ui/utils/uiPreferences';
 import { AnnotationType, type Annotation, type EditorMode } from '@plannotator/ui/types';
 import type { RoomAnnotation, RoomSnapshot } from '../core/types';
 import {
@@ -41,6 +42,11 @@ const clampWidth = (value: number, min: number, max: number) => Math.min(max, Ma
 function loadWidth(key: string, fallback: number, min: number, max: number): number {
   const saved = Number(localStorage.getItem(key));
   return Number.isFinite(saved) && saved > 0 ? clampWidth(saved, min, max) : fallback;
+}
+
+function loadPlanWidth(): PlanWidth {
+  const saved = localStorage.getItem('room.planWidth');
+  return PLAN_WIDTH_OPTIONS.find((option) => option.id === saved)?.id ?? 'default';
 }
 
 /**
@@ -89,6 +95,10 @@ const LONG_POLL_WAIT_SECONDS = 25;
 /** Delay before re-anchoring highlights so the viewer DOM is fully rendered. */
 const REPAINT_DELAY_MS = 150;
 
+const PLAN_WIDTH_LABEL: Record<PlanWidth, string> = { compact: '좁게', default: '보통', wide: '넓게' };
+/** 본문 래퍼의 좌우 패딩(px-6) 합. */
+const VIEWER_GUTTER_PX = 48;
+
 const MODE_OPTION_LIST: Array<{ id: EditorMode; label: string }> = [
   { id: 'selection', label: 'Select' },
   { id: 'comment', label: 'Comment' },
@@ -123,6 +133,7 @@ export function RoomApp({ roomId }: { roomId: string }) {
   const [isComposing, setIsComposing] = useState(false);
   /** 작성 중이라 미뤄 둔 본문 갱신이 있을 때, 화면에 계속 보여 줄 이전 본문. */
   const [heldPlan, setHeldPlan] = useState<{ plan: string; planVersion: number } | null>(null);
+  const [planWidth, setPlanWidth] = useState<PlanWidth>(loadPlanWidth);
 
   const [identity, setIdentity] = useState(() => getIdentity());
   const [showHistory, setShowHistory] = useState(false);
@@ -204,6 +215,7 @@ export function RoomApp({ roomId }: { roomId: string }) {
   }, [plan, isHtml]);
 
   const blocks = useMemo(() => parseMarkdownToBlocks(content), [content]);
+  const planWidthPx = PLAN_WIDTH_OPTIONS.find((option) => option.id === planWidth)?.px ?? 1040;
 
   const uiAnnotations = useMemo(
     () => (snapshot?.annotations ?? []).map(toUiAnnotation),
@@ -637,6 +649,29 @@ export function RoomApp({ roomId }: { roomId: string }) {
               ))}
             </div>
           )}
+          {!isHtml && (
+            <Tooltip className="hidden lg:block" content="본문 폭 — 이 브라우저에 기억돼요">
+              <div className="flex items-center rounded-lg border border-border/60 p-0.5">
+                {PLAN_WIDTH_OPTIONS.map((option) => (
+                  <button
+                    key={option.id}
+                    type="button"
+                    onClick={() => {
+                      setPlanWidth(option.id);
+                      localStorage.setItem('room.planWidth', option.id);
+                    }}
+                    className={`rounded-md px-2 py-1 text-xs transition-colors ${
+                      planWidth === option.id
+                        ? 'bg-muted text-foreground'
+                        : 'text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    {PLAN_WIDTH_LABEL[option.id]}
+                  </button>
+                ))}
+              </div>
+            </Tooltip>
+          )}
           <div className="ml-auto flex items-center gap-2 text-[11px] text-muted-foreground">
             <AckControl
               acks={snapshot.acks ?? []}
@@ -763,7 +798,7 @@ export function RoomApp({ roomId }: { roomId: string }) {
               className="bg-grid min-w-0 flex-1"
               onViewportReady={setViewport}
             >
-              <div className="mx-auto max-w-4xl px-6 py-8">
+              <div className="mx-auto px-6 py-8" style={{ maxWidth: planWidthPx + VIEWER_GUTTER_PX }}>
                 <Viewer
                   key={planVersion}
                   ref={viewerRef}
@@ -782,6 +817,7 @@ export function RoomApp({ roomId }: { roomId: string }) {
                   gridEnabled
                   allowImages={false}
                   disableCodePathValidation
+                  maxWidth={planWidthPx}
                   onComposingChange={handleComposingChange}
                 />
               </div>
