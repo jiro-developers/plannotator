@@ -20,9 +20,14 @@ span.text-\[10px\].text-muted-foreground\/50 {
   font-weight: 600;
 }
 
-/* 본문이 바뀌어 원문 일부로만 찾은 코멘트 위치 — 정확한 위치와 구분되게 점선만 */
+/* 하이라이트는 <mark>라 브라우저 기본 글자색(검정)이 남아 다크 모드에서 묻힌다 */
+.annotation-highlight {
+  color: inherit;
+}
+
+/* 본문이 바뀌어 원문 일부로만 찾은 코멘트 위치 — 정확한 위치보다 옅은 배경과 점선으로 구분 */
 .annotation-highlight.comment.approx,
 .light .annotation-highlight.comment.approx {
-  background: transparent;
+  background: oklch(0.70 0.18 60 / 0.12);
   border-bottom: 2px dashed var(--accent);
 }
