@@ -35,6 +35,7 @@ import { getAuthedRename } from './AuthGate';
 import { AckControl } from './AckControl';
 import { AckLinkBadge } from './AckLinkBadge';
 import { Tooltip } from './Tooltip';
+import { AGENT_FRESH_MS, formatAgo } from './time';
 import { createPortal } from 'react-dom';
 
 const clampWidth = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
@@ -79,16 +80,6 @@ function findApproxAnchor(text: string, haystack: string): string | null {
   return haystack.indexOf(best) === haystack.lastIndexOf(best) ? best : null;
 }
 
-function formatAgo(ts: number): string {
-  const diff = Date.now() - ts;
-  if (diff < 45_000) return '방금';
-  if (diff < 3_600_000) return `${Math.round(diff / 60_000)}분 전`;
-  if (diff < 86_400_000) return `${Math.round(diff / 3_600_000)}시간 전`;
-  return new Date(ts).toLocaleDateString();
-}
-
-/** 에이전트 폴링 주기(3분)보다 조금 여유 있게 — 이 안이면 "폴링 중"으로 본다. */
-const AGENT_FRESH_MS = 5 * 60_000;
 
 const POLL_INTERVAL_MS = 10_000;
 const LONG_POLL_WAIT_SECONDS = 25;

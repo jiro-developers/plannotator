@@ -11,6 +11,7 @@ import type {
   RoomAnnotationStatus,
   RoomAnnotationType,
   RoomSnapshot,
+  RoomSummary,
 } from '../core/types';
 
 const TYPE_TO_ENUM: Record<RoomAnnotationType, AnnotationType> = {
@@ -41,6 +42,11 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     throw new Error(message);
   }
   return (await response.json()) as T;
+}
+
+/** `me`는 무인증(로컬) 모드의 참여 판정용 닉네임 — 로그인 모드에서는 서버가 세션으로 판정한다. */
+export function fetchRoomList(me: string): Promise<{ rooms: RoomSummary[] }> {
+  return request(`/api/rooms?me=${encodeURIComponent(me)}`);
 }
 
 export function fetchRoom(roomId: string): Promise<RoomSnapshot> {
