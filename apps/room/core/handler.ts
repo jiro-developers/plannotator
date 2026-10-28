@@ -27,6 +27,8 @@ import type {
   RoomAnnotationStatus,
   RoomAnnotationTextMeta,
   RoomDoc,
+  RoomListDoc,
+  RoomSummary,
 } from './types';
 import { toSnapshot } from './types';
 import {
@@ -257,9 +259,43 @@ function findAnnotation(doc: RoomDoc, annotationId: string): RoomAnnotation {
   return annotation;
 }
 
-function touch(doc: RoomDoc): void {
+function touch(doc: RoomDoc, actor: SessionUser | null): void {
   doc.version += 1;
   doc.updatedA = Date.now();
+  if (actor && actor.email !== 'agent' && !(doc.participants ?? []).includes(actor.email)) {
+    doc.participants = [...(doc.participants ?? []), actor.email];
+  }
+}
+
+/**
+ * 목록 한 줄. 참여 판정은 참여자 이메일이 우선이고, 그 기록이 생기기 전의
+ * 방은 표시 이름(작성자·답글·투표·확인)으로 맞춘다.
+ */
+function toRoomSummary(doc: RoomListDoc, me: { email?: string; name?: string }): RoomSummary {
+  const { email, name } = me;
+  const byEmail =
+    email !== undefined &&
+    ((doc.participants ?? []).includes(email) || (doc.acks ?? []).some((ack) => ack.key === email));
+  const byName =
+    name !== undefined &&
+    name !== 'agent' &&
+    (doc.annotations.some(
+      (a) => a.author === name || a.votes.includes(name) || a.replies.some((reply) => reply.author === name)
+    ) ||
+      (doc.acks ?? []).some((ack) => ack.name === name));
+  return {
+    id: doc.id,
+    title: doc.title,
+    renderAs: doc.renderAs,
+    planVersion: doc.planVersion,
+    createdA: doc.createdA,
+    updatedA: doc.updatedA,
+    annotationCount: doc.annotations.length,
+    openCount: doc.annotations.filter((a) => a.status === 'open' && a.author !== 'agent').length,
+    ackCount: (doc.acks ?? []).filter((ack) => ack.planVersion === doc.planVersion).length,
+    agentLastSeenA: doc.agentLastSeenA,
+    participated: byEmail || byName,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -408,6 +444,17 @@ export async function handleRoomRequest(
       return json({ summaries });
     }
 
+    if (url.pathname === '/api/rooms' && request.method === 'GET') {
+      // 무인증(로컬) 모드에는 세션이 없어 브라우저가 보낸 닉네임으로 참여를 판정한다
+      const me = actor
+        ? actor.email === 'agent'
+          ? {}
+          : { email: actor.email, name: actor.name }
+        : { name: url.searchParams.get('me') ?? undefined };
+      const rooms = await store.list();
+      return json({ rooms: rooms.map((doc) => toRoomSummary(doc, me)) });
+    }
+
     if (url.pathname === '/api/rooms' && request.method === 'POST') {
       const body = await readJson(request);
       const plan = requireString(body.plan, 'plan', options.maxPlanSize);
@@ -434,6 +481,7 @@ export async function handleRoomRequest(
         updatedA: now,
         annotations: [],
         changelog: [{ version: 1, planVersion: 1, note: 'Room created', author, createdA: now }],
+        ...(actor && actor.email !== 'agent' ? { participants: [actor.email] } : {}),
       };
       await putAndWake(store, id, doc);
       const base = options.publicBaseUrl ?? url.origin;
@@ -459,7 +507,7 @@ export async function handleRoomRequest(
             doc.signals ??= {};
             doc.signals.commitRequestedA = Date.now();
             if (actorName) doc.signals.commitRequestedBy = actorName;
-            touch(doc);
+            touch(doc, actor);
             await putAndWake(store, roomId, doc);
             return json({ signals: doc.signals, version: doc.version });
           });
@@ -474,7 +522,7 @@ export async function handleRoomRequest(
             delete doc.signals.commitRequestedA;
             delete doc.signals.commitRequestedBy;
             doc.signals.lastCommittedPlanVersion = doc.planVersion;
-            touch(doc);
+            touch(doc, actor);
             await putAndWake(store, roomId, doc);
             return json({ signals: doc.signals, version: doc.version });
           });
@@ -504,7 +552,7 @@ export async function handleRoomRequest(
             } else {
               doc.acks.push({ key, name, planVersion: doc.planVersion, createdA: Date.now() });
             }
-            touch(doc);
+            touch(doc, actor);
             await putAndWake(store, roomId, doc);
             return json({ acks: doc.acks, version: doc.version });
           });
@@ -517,7 +565,7 @@ export async function handleRoomRequest(
             const doc = await loadRoom(store, roomId);
             if (doc.acks?.some((a) => a.key === key)) {
               doc.acks = doc.acks.filter((a) => a.key !== key);
-              touch(doc);
+              touch(doc, actor);
               await putAndWake(store, roomId, doc);
             }
             return json({ acks: doc.acks ?? [], version: doc.version });
@@ -590,7 +638,7 @@ export async function handleRoomRequest(
           while (doc.planHistory.length > MAX_PLAN_HISTORY) doc.planHistory.shift();
           doc.plan = plan;
           doc.planVersion += 1;
-          touch(doc);
+          touch(doc, actor);
           doc.changelog.push({
             version: doc.version,
             planVersion: doc.planVersion,
@@ -628,7 +676,7 @@ export async function handleRoomRequest(
             replies: [],
           };
           doc.annotations.push(annotation);
-          touch(doc);
+          touch(doc, actor);
           await putAndWake(store, roomId, doc);
           return json({ annotation, version: doc.version }, 201);
         });
@@ -647,7 +695,7 @@ export async function handleRoomRequest(
             const doc = await loadRoom(store, roomId);
             const annotation = findAnnotation(doc, annotationId);
             annotation.replies.push({ author, text, createdA: Date.now() });
-            touch(doc);
+            touch(doc, actor);
             await putAndWake(store, roomId, doc);
             return json({ annotation, version: doc.version }, 201);
           });
@@ -665,7 +713,7 @@ export async function handleRoomRequest(
             } else {
               annotation.votes.push(author);
             }
-            touch(doc);
+            touch(doc, actor);
             await putAndWake(store, roomId, doc);
             return json({ votes: annotation.votes, version: doc.version });
           });
@@ -693,7 +741,7 @@ export async function handleRoomRequest(
             if (status !== undefined) {
               annotation.status = status as RoomAnnotationStatus;
             }
-            touch(doc);
+            touch(doc, actor);
             await putAndWake(store, roomId, doc);
             return json({ annotation, version: doc.version });
           });
@@ -709,7 +757,7 @@ export async function handleRoomRequest(
               throw new RoomError('Only the author may delete the annotation', 403);
             }
             doc.annotations = doc.annotations.filter((a) => a.id !== annotationId);
-            touch(doc);
+            touch(doc, actor);
             await putAndWake(store, roomId, doc);
             return json({ version: doc.version });
           });
