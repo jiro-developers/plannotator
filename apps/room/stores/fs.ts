@@ -1,7 +1,7 @@
 import { mkdirSync, readdirSync, readFileSync, unlinkSync } from 'fs';
 import { join, resolve } from 'path';
 import type { RoomStore } from '../core/storage';
-import type { RoomDoc } from '../core/types';
+import type { RoomDoc, RoomListDoc } from '../core/types';
 
 /**
  * Filesystem store — one JSON file per room. Default for local dev; on a
@@ -43,6 +43,17 @@ export class FsRoomStore implements RoomStore {
 
   async put(id: string, doc: RoomDoc): Promise<void> {
     await Bun.write(this.safePath(id), JSON.stringify(doc));
+  }
+
+  async list(): Promise<RoomListDoc[]> {
+    const rooms: RoomListDoc[] = [];
+    for (const file of readdirSync(this.dataDir).filter((f) => f.endsWith('.json'))) {
+      const doc = await this.get(file.slice(0, -'.json'.length));
+      if (!doc) continue;
+      const { plan: _plan, planHistory: _planHistory, ...rest } = doc;
+      rooms.push(rest);
+    }
+    return rooms.sort((a, b) => b.updatedA - a.updatedA);
   }
 
   /** Delete expired rooms on startup. */

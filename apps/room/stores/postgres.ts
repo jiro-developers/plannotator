@@ -1,6 +1,6 @@
 import { SQL } from 'bun';
 import type { RoomStore } from '../core/storage';
-import type { RoomDoc } from '../core/types';
+import type { RoomDoc, RoomListDoc } from '../core/types';
 
 /**
  * Postgres store using Bun's built-in SQL client (zero extra dependencies).
@@ -38,6 +38,17 @@ export class PostgresRoomStore implements RoomStore {
       SELECT doc FROM plannotator_rooms WHERE id = ${id}
     `) as Array<{ doc: RoomDoc }>;
     return rows.length > 0 ? rows[0].doc : null;
+  }
+
+  async list(): Promise<RoomListDoc[]> {
+    await this.ready;
+    // 본문·이력은 방마다 수 MB까지 커서 목록에서는 DB에서 빼고 받는다
+    const rows = (await this.sql`
+      SELECT doc - 'plan' - 'planHistory' AS doc
+      FROM plannotator_rooms
+      ORDER BY updated_at DESC
+    `) as Array<{ doc: RoomListDoc }>;
+    return rows.map((row) => row.doc);
   }
 
   async put(id: string, doc: RoomDoc): Promise<void> {

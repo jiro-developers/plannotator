@@ -142,6 +142,33 @@ export interface RoomDoc {
    * Excluded from snapshots — fetched per version via /plan-versions/:v.
    */
   planHistory?: RoomPlanVersion[];
+  /**
+   * Login emails of teammates who wrote to the room (comment, reply, vote,
+   * ack, plan, signal). Drives the "내가 참여한 방" list; display names can
+   * change, emails don't. Excluded from snapshots.
+   */
+  participants?: string[];
+}
+
+/** A room as the list API reads it — without the (possibly large) plan bodies. */
+export type RoomListDoc = Omit<RoomDoc, 'plan' | 'planHistory'>;
+
+/** One row of GET /api/rooms. */
+export interface RoomSummary {
+  id: string;
+  title: string;
+  renderAs?: 'markdown' | 'html';
+  planVersion: number;
+  createdA: number;
+  updatedA: number;
+  annotationCount: number;
+  /** status가 open이고 에이전트가 쓰지 않은 코멘트 수. */
+  openCount: number;
+  /** 현재 planVersion을 확인한 사람 수. */
+  ackCount: number;
+  agentLastSeenA?: number;
+  /** 요청한 사람이 이 방에 코멘트·답글·투표·확인 등을 남긴 적이 있는지. */
+  participated: boolean;
 }
 
 /** Snapshot returned by GET /api/rooms/:id and /changes. */
@@ -162,6 +189,6 @@ export interface RoomSnapshot {
 }
 
 export function toSnapshot(doc: RoomDoc): RoomSnapshot {
-  const { seqCounter: _seqCounter, planHistory: _planHistory, ...snapshot } = doc;
+  const { seqCounter: _seqCounter, planHistory: _planHistory, participants: _participants, ...snapshot } = doc;
   return snapshot;
 }
