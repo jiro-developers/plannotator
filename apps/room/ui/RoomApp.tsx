@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { toast, Toaster } from 'sonner';
 import { Viewer, type ViewerHandle } from '@plannotator/ui/components/Viewer';
 import { AnnotationPanel } from '@plannotator/ui/components/AnnotationPanel';
@@ -86,6 +86,49 @@ const LONG_POLL_WAIT_SECONDS = 25;
 /** Delay before re-anchoring highlights so the viewer DOM is fully rendered. */
 const REPAINT_DELAY_MS = 150;
 
+type ReadingAnchor = { text: string; offset: number };
+
+/** 화면 위쪽에 보이는 블록 몇 개의 앞부분 글자와 화면상 높이. 맨 위에 있으면 기억할 필요가 없다. */
+function captureReadingAnchor(viewport: HTMLElement | null): ReadingAnchor[] {
+  if (!viewport || viewport.scrollTop < 40) return [];
+  const top = viewport.getBoundingClientRect().top;
+  const anchors: ReadingAnchor[] = [];
+  for (const el of viewport.querySelectorAll<HTMLElement>('[data-block-id]')) {
+    const rect = el.getBoundingClientRect();
+    if (rect.bottom <= top) continue;
+    if (rect.top - top > viewport.clientHeight || anchors.length >= 5) break;
+    const text = (el.textContent ?? '').trim();
+    if (text.length >= 12) anchors.push({ text: text.slice(0, 120), offset: rect.top - top });
+  }
+  // 위로 걸친 블록은 길이가 바뀌면 그 아래 읽던 문단이 밀리므로 마지막 후보로 둔다
+  return [...anchors.filter((a) => a.offset >= 0), ...anchors.filter((a) => a.offset < 0)];
+}
+
+/**
+ * 블록 번호는 위치 기준이라 위에 내용이 늘면 밀린다. 글자 앞부분이 새 본문에서
+ * 한 곳에만 있는 블록을 찾아 원래 높이로 되돌린다. 늦게 그려지는 다이어그램이
+ * 위치를 미는 경우를 위해 잠시 뒤 한 번 더 맞춘다.
+ */
+function restoreReadingAnchor(viewport: HTMLElement, anchors: ReadingAnchor[]): void {
+  const blocks = [...viewport.querySelectorAll<HTMLElement>('[data-block-id]')];
+  for (const anchor of anchors) {
+    const matches = blocks.filter((el) => (el.textContent ?? '').trim().startsWith(anchor.text));
+    if (matches.length !== 1) continue;
+    const target = matches[0];
+    const align = () => {
+      const delta = target.getBoundingClientRect().top - viewport.getBoundingClientRect().top - anchor.offset;
+      if (Math.abs(delta) > 1) viewport.scrollTop += delta;
+      return viewport.scrollTop;
+    };
+    const aligned = align();
+    window.setTimeout(() => {
+      // 그사이 사용자가 스크롤했으면 건드리지 않는다
+      if (target.isConnected && viewport.scrollTop === aligned) align();
+    }, 400);
+    return;
+  }
+}
+
 const PLAN_WIDTH_LABEL: Record<PlanWidth, string> = { compact: '좁게', default: '보통', wide: '넓게' };
 /** 본문 래퍼의 좌우 패딩(px-6) 합. */
 const VIEWER_GUTTER_PX = 48;
@@ -124,6 +167,8 @@ export function RoomApp({ roomId }: { roomId: string }) {
   const [isComposing, setIsComposing] = useState(false);
   /** 작성 중이라 미뤄 둔 본문 갱신이 있을 때, 화면에 계속 보여 줄 이전 본문. */
   const [heldPlan, setHeldPlan] = useState<{ plan: string; planVersion: number } | null>(null);
+  /** 본문이 바뀌기 직전 읽던 위치 — 다시 그린 뒤 같은 블록으로 스크롤을 맞춘다. */
+  const readingAnchorRef = useRef<ReadingAnchor[]>([]);
   const [planWidth, setPlanWidth] = useState<PlanWidth>(loadPlanWidth);
 
   const [identity, setIdentity] = useState(() => getIdentity());
@@ -187,10 +232,15 @@ export function RoomApp({ roomId }: { roomId: string }) {
     setIsComposing(composing);
   }, []);
 
+  const releaseHeldPlan = useCallback(() => {
+    readingAnchorRef.current = captureReadingAnchor(viewportRef.current);
+    setHeldPlan(null);
+  }, []);
+
   // 작성이 끝나면 미뤄 둔 본문 갱신을 반영한다
   useEffect(() => {
-    if (!isComposing) setHeldPlan(null);
-  }, [isComposing]);
+    if (!isComposing && heldPlan) releaseHeldPlan();
+  }, [isComposing, heldPlan, releaseHeldPlan]);
 
   // 화면에 보이는 본문 — 작성 중 미뤄 둔 갱신이 있으면 이전 본문
   const plan = heldPlan?.plan ?? snapshot?.plan ?? '';
@@ -232,8 +282,12 @@ export function RoomApp({ roomId }: { roomId: string }) {
     const current = snapshotRef.current;
     // 늦게 도착한 옛 응답이 더 최신 상태를 덮지 않게 한다
     if (current && next.version < current.version) return;
-    if (current && isComposingRef.current && next.planVersion !== current.planVersion) {
-      setHeldPlan((held) => held ?? { plan: current.plan, planVersion: current.planVersion });
+    if (current && next.planVersion !== current.planVersion) {
+      if (isComposingRef.current) {
+        setHeldPlan((held) => held ?? { plan: current.plan, planVersion: current.planVersion });
+      } else {
+        readingAnchorRef.current = captureReadingAnchor(viewportRef.current);
+      }
     }
     const serverIds = new Set(next.annotations.map((a) => a.id));
     const pending = [...pendingAnnotationsRef.current.values()].filter((a) => !serverIds.has(a.id));
@@ -310,6 +364,13 @@ export function RoomApp({ roomId }: { roomId: string }) {
       }
     }, REPAINT_DELAY_MS);
   }, []);
+
+  // 새 본문이 그려진 직후, 화면에 그리기 전에 읽던 위치를 되돌린다
+  useLayoutEffect(() => {
+    const anchors = readingAnchorRef.current;
+    readingAnchorRef.current = [];
+    if (anchors.length > 0 && viewportRef.current) restoreReadingAnchor(viewportRef.current, anchors);
+  }, [planVersion]);
 
   // The viewer remounts when the plan changes (key={planVersion}) — all
   // highlight DOM is lost, so repaint everything from scratch.
@@ -917,7 +978,7 @@ export function RoomApp({ roomId }: { roomId: string }) {
           </span>
           <button
             type="button"
-            onClick={() => setHeldPlan(null)}
+            onClick={releaseHeldPlan}
             className="rounded-md border border-border/60 px-2 py-1 text-muted-foreground hover:bg-muted"
           >
             지금 반영 (작성 중 내용은 사라져요)
